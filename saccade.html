@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Staircase Prosaccade Task - Minimum Saccade Latency</title>
+    <script src="https://unpkg.com/jspsych@7.3.4"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@1.1.3"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-button-response@1.1.3"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-preload@1.1.3"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-fullscreen@1.2.1"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-call-function@1.1.3"></script>
+    <script src="https://webgazer.cs.brown.edu/webgazer.js"></script>
+    <link href="https://unpkg.com/jspsych@7.3.4/css/jspsych.css" rel="stylesheet" type="text/css" />
+    <style>
+        body {
+            background-color: black;
+            overflow: hidden;
+        }
+        .jspsych-content {
+            max-width: 100%;
+        }
+        .jspsych-content-wrapper {
+            background-color: black;
+        }
+        .trial-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            background-color: black;
+        }
+        .fixation {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 20px;
+            height: 20px;
+            background-color: white;
+            border-radius: 50%;
+        }
+        .target {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 40px;
+            height: 40px;
+            background-color: #00ff00;
+            border-radius: 50%;
+        }
+        .target-left {
+            left: 15%;
+        }
+        .target-right {
+            right: 15%;
+        }
+        .calibration-point {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            background-color: red;
+            border-radius: 50%;
+            cursor: pointer;
+            transform: translate(-50%, -50%);
+            transition: background-color 0.2s;
+        }
+        .calibration-point:hover {
+            background-color: yellow;
+        }
+        .calibration-point.clicked {
+            background-color: green;
+        }
+        .instructions {
+            color: white;
+            font-size: 20px;
+            line-height: 1.6;
+            max-width: 700px;
+            margin: 0 auto;
+            text-align: left;
+        }
+        .instructions h2 {
+            text-align: center;
+        }
+        .continue-text {
+            text-align: center;
+            margin-top: 30px;
+            color: #aaa;
+        }
+        .feedback {
+            color: white;
+            font-size: 32px;
+            text-align: center;
+        }
+        .feedback.error {
+            color: #ff6666;
+        }
+        .feedback.success {
+            color: #66ff66;
+        }
+        .results {
+            color: white;
+            font-size: 24px;
+            line-height: 1.8;
+            text-align: center;
+        }
+        .gaze-indicator {
+            position: fixed;
+            width: 20px;
+            height: 20px;
+            background-color: rgba(255, 0, 0, 0.5);
+            border-radius: 50%;
+            pointer-events: none;
+            transform: translate(-50%, -50%);
+            z-index: 9999;
+            display: none;
+        }
+        #webgazerVideoContainer {
+            display: none !important;
+        }
+        #webgazerFaceOverlay {
+            display: none !important;
+        }
+        #webgazerFaceFeedbackBox {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+<div id="gaze-indicator" class="gaze-indicator"></div>
+</body>
+<script>
+// =============================================================================
+// STAIRCASE PROSACCADE TASK - MINIMUM SACCADE LATENCY
+// =============================================================================
+// Uses WebGazer.js for webcam-based gaze tracking
+// Uses a staircase to find the minimum gap duration at which
+// the participant can reliably initiate a saccade.
+//
+// The "gap" is the time between fixation offset and target onset.
+// Longer gaps = easier to make fast saccades (gap effect)
+// Shorter gaps / overlap = harder, slower saccades
+//
+// Staircase adjusts gap to find threshold for reliable saccade initiation
+// =============================================================================
+
+// --- Staircase Parameters ---
+const MIN_GAP = -200;           // Negative = overlap (fixation stays on with target)
+const MAX_GAP = 400;            // Maximum gap duration
+const START_GAP = 200;          // Start with easy 200ms gap
+const STEP_SIZE_INITIAL = 50;   // 50ms steps
+const STEP_SIZE_MIN = 10;       // 10ms minimum
+const N_REVERSALS = 12;         // Reversals before stopping
+const N_TRIALS_MAX = 150;       // Maximum trials
+
+// --- Saccade Threshold ---
+const SACCADE_LATENCY_CRITERION = 350;  // Must initiate saccade within 350ms of target
+const ACCURACY_CRITERION = true;         // Must land on correct target
+
+// --- Task Parameters ---
+const N_PRACTICE_TRIALS = 10;
+const FIXATION_DURATION = 750;
+const TARGET_DURATION = 2000;
+
+// --- Gaze Detection Parameters ---
+const CENTER_RADIUS = 100;
+const TARGET_RADIUS = 150;
+
+// --- Screen regions ---
+let screenWidth, screenHeight;
+let centerX, centerY;
+let leftTargetX, rightTargetX, targetY;
+
+// --- Staircase State ---
+let staircase = {
+    currentGap: START_GAP,
+    stepSize: STEP_SIZE_INITIAL,
+    successHistory: [],      // true = made fast accurate saccade, false = failed
+    gapHistory: [],
+    reversals: [],
+    lastDirection: null,
+    consecutiveSuccess: 0,
+    consecutiveFail: 0
+};
+
+// --- Trial state ---
+let currentTrial = {
+    targetSide: 'left',
+    gap: 200,
+    gazeLeftCenter: false,
+    gazeReachedTarget: false,
+    saccadeLatency: null,
+    saccadeAccuracy: null,
+    saccadeDuration: null,
+    success: false
+};
+
+// --- Counters ---
+let mainTrialCount = 0;
+let practiceTrialCount = 0;
+
+// --- Gaze tracking state ---
+let gazeData = [];
+let isTracking = false;
+let trialStartTime = null;
+
+// --- WebGazer state ---
+let webgazerReady = false;
+let currentGaze = { x: 0, y: 0 };
+
+// =============================================================================
+// STAIRCASE FUNCTIONS
+// =============================================================================
+function updateStaircase(success) {
+    staircase.successHistory.push(success);
+    staircase.gapHistory.push(staircase.currentGap);
+
+    let reversal = false;
+    let newDirection = null;
+
+    if (success) {
+        // Successful saccade: decrease gap (make harder)
+        staircase.consecutiveSuccess++;
+        staircase.consecutiveFail = 0;
+
+        if (staircase.consecutiveSuccess >= 2) {  // 2-down
+            newDirection = 'down';
+            if (staircase.lastDirection === 'up') {
+                reversal = true;
+                staircase.reversals.push(staircase.currentGap);
+                staircase.stepSize = Math.max(STEP_SIZE_MIN, staircase.stepSize * 0.75);
+            }
+            staircase.currentGap = Math.max(MIN_GAP, staircase.currentGap - staircase.stepSize);
+            staircase.consecutiveSuccess = 0;
+            staircase.lastDirection = newDirection;
+        }
+    } else {
+        // Failed saccade: increase gap (make easier)
+        staircase.consecutiveFail++;
+        staircase.consecutiveSuccess = 0;
+
+        if (staircase.consecutiveFail >= 1) {  // 1-up
+            newDirection = 'up';
+            if (staircase.lastDirection === 'down') {
+                reversal = true;
+                staircase.reversals.push(staircase.currentGap);
+                staircase.stepSize = Math.max(STEP_SIZE_MIN, staircase.stepSize * 0.75);
+            }
+            staircase.currentGap = Math.min(MAX_GAP, staircase.currentGap + staircase.stepSize);
+            staircase.consecutiveFail = 0;
+            staircase.lastDirection = newDirection;
+        }
+    }
+
+    if (reversal) {
+        console.log(`Reversal ${staircase.reversals.length}: Gap = ${staircase.currentGap}ms`);
+    }
+
+    return reversal;
+}
+
+function isStaircaseFinished() {
+    return staircase.reversals.length >= N_REVERSALS;
+}
+
+function getThreshold() {
+    if (staircase.reversals.length < 4) {
+        return staircase.currentGap;
+    }
+    const nUse = Math.min(8, staircase.reversals.length);
+    const lastReversals = staircase.reversals.slice(-nUse);
+    return lastReversals.reduce((a, b) => a + b, 0) / lastReversals.length;
+}
+
+// =============================================================================
+// WEBGAZER SETUP
+// =============================================================================
+async function initWebGazer() {
+    return new Promise((resolve, reject) => {
+        webgazer
+            .setGazeListener((data, elapsedTime) => {
+                if (data == null) return;
+                currentGaze.x = data.x;
+                currentGaze.y = data.y;
+
+                const indicator = document.getElementById('gaze-indicator');
+                if (indicator && indicator.style.display !== 'none') {
+                    indicator.style.left = data.x + 'px';
+                    indicator.style.top = data.y + 'px';
+                }
+
+                if (isTracking && trialStartTime) {
+                    gazeData.push({
+                        time: performance.now() - trialStartTime,
+                        x: data.x,
+                        y: data.y
+                    });
+                }
+            })
+            .saveDataAcrossSessions(false)
+            .begin()
+            .then(() => {
+                webgazerReady = true;
+                webgazer.showVideoPreview(false);
+                webgazer.showPredictionPoints(false);
+                webgazer.showFaceOverlay(false);
+                webgazer.showFaceFeedbackBox(false);
+                resolve();
+            })
+            .catch(err => {
+                console.error('WebGazer init error:', err);
+                reject(err);
+            });
+    });
+}
+
+function calculateScreenRegions() {
+    screenWidth = window.innerWidth;
+    screenHeight = window.innerHeight;
+    centerX = screenWidth / 2;
+    centerY = screenHeight / 2;
+    leftTargetX = screenWidth * 0.15;
+    rightTargetX = screenWidth * 0.85;
+    targetY = screenHeight / 2;
+}
+
+function isGazeInRegion(gazeX, gazeY, regionX, regionY, radius) {
+    const dist = Math.sqrt(Math.pow(gazeX - regionX, 2) + Math.pow(gazeY - regionY, 2));
+    return dist <= radius;
+}
+
+// =============================================================================
+// CALIBRATION
+// =============================================================================
+const calibrationPoints = [
+    { x: 10, y: 10 }, { x: 50, y: 10 }, { x: 90, y: 10 },
+    { x: 10, y: 50 }, { x: 50, y: 50 }, { x: 90, y: 50 },
+    { x: 10, y: 90 }, { x: 50, y: 90 }, { x: 90, y: 90 },
+];
+
+let calibrationClicks = {};
+
+function createCalibrationHTML() {
+    let html = '<div class="trial-container" style="position: relative;">';
+    html += '<p style="color: white; text-align: center; padding-top: 20px; font-size: 18px;">Click each red dot 5 times while looking at it. Dots turn green when done.</p>';
+    calibrationPoints.forEach((point, index) => {
+        html += `<div class="calibration-point" id="calib-${index}"
+                     style="left: ${point.x}%; top: ${point.y}%;"
+                     data-index="${index}"></div>`;
+    });
+    html += '</div>';
+    return html;
+}
+
+function handleCalibrationClick(event) {
+    const target = event.target;
+    if (!target.classList.contains('calibration-point')) return;
+
+    const index = parseInt(target.dataset.index);
+    const point = calibrationPoints[index];
+    const x = (point.x / 100) * window.innerWidth;
+    const y = (point.y / 100) * window.innerHeight;
+
+    webgazer.recordScreenPosition(x, y, 'click');
+    calibrationClicks[index] = (calibrationClicks[index] || 0) + 1;
+
+    if (calibrationClicks[index] >= 5) {
+        target.classList.add('clicked');
+    }
+}
+
+function isCalibrationComplete() {
+    return calibrationPoints.every((_, index) => (calibrationClicks[index] || 0) >= 5);
+}
+
+// =============================================================================
+// TRIAL FUNCTIONS
+// =============================================================================
+function generateFixationHTML() {
+    return `<div class="trial-container"><div class="fixation"></div></div>`;
+}
+
+function generateTargetHTML(side, showFixation) {
+    return `<div class="trial-container">
+        ${showFixation ? '<div class="fixation"></div>' : ''}
+        <div class="target target-${side}"></div>
+    </div>`;
+}
+
+function generateGapHTML() {
+    return `<div class="trial-container"></div>`;
+}
+
+function setupTrial(isPractice) {
+    currentTrial.targetSide = Math.random() < 0.5 ? 'left' : 'right';
+    currentTrial.gap = isPractice ? 200 : staircase.currentGap;  // Fixed gap for practice
+    currentTrial.gazeLeftCenter = false;
+    currentTrial.gazeReachedTarget = false;
+    currentTrial.saccadeLatency = null;
+    currentTrial.saccadeAccuracy = null;
+    currentTrial.saccadeDuration = null;
+    currentTrial.success = false;
+    gazeData = [];
+}
+
+function startGazeTracking() {
+    isTracking = true;
+    trialStartTime = performance.now();
+    gazeData = [];
+}
+
+function stopGazeTracking() {
+    isTracking = false;
+}
+
+function analyzeGazeData(targetOnsetTime) {
+    let leftCenterTime = null;
+    let reachedTargetTime = null;
+    let landedOnCorrectSide = null;
+
+    for (let i = 0; i < gazeData.length; i++) {
+        const g = gazeData[i];
+        if (g.time < targetOnsetTime) continue;
+
+        if (leftCenterTime === null) {
+            if (!isGazeInRegion(g.x, g.y, centerX, centerY, CENTER_RADIUS)) {
+                leftCenterTime = g.time;
+            }
+        }
+
+        if (leftCenterTime !== null && reachedTargetTime === null) {
+            const atLeft = isGazeInRegion(g.x, g.y, leftTargetX, targetY, TARGET_RADIUS);
+            const atRight = isGazeInRegion(g.x, g.y, rightTargetX, targetY, TARGET_RADIUS);
+
+            if (atLeft || atRight) {
+                reachedTargetTime = g.time;
+                landedOnCorrectSide = (currentTrial.targetSide === 'left' && atLeft) ||
+                                      (currentTrial.targetSide === 'right' && atRight);
+            }
+        }
+    }
+
+    if (leftCenterTime !== null) {
+        currentTrial.saccadeLatency = leftCenterTime - targetOnsetTime;
+        currentTrial.gazeLeftCenter = true;
+    }
+
+    if (reachedTargetTime !== null) {
+        currentTrial.gazeReachedTarget = true;
+        currentTrial.saccadeDuration = reachedTargetTime - leftCenterTime;
+        currentTrial.saccadeAccuracy = landedOnCorrectSide;
+    }
+
+    // Determine success for staircase
+    currentTrial.success = currentTrial.gazeLeftCenter &&
+                           currentTrial.gazeReachedTarget &&
+                           currentTrial.saccadeLatency !== null &&
+                           currentTrial.saccadeLatency < SACCADE_LATENCY_CRITERION &&
+                           (!ACCURACY_CRITERION || currentTrial.saccadeAccuracy);
+}
+
+// =============================================================================
+// INITIALIZE JSPSYCH
+// =============================================================================
+const jsPsych = initJsPsych({
+    on_finish: function() {
+        if (webgazerReady) webgazer.end();
+        console.log('Experiment complete!');
+    }
+});
+
+// =============================================================================
+// TIMELINE
+// =============================================================================
+let timeline = [];
+
+// --- Fullscreen ---
+timeline.push({
+    type: jsPsychFullscreen,
+    fullscreen_mode: true,
+    message: '<p style="color: white; font-size: 20px;">The experiment will switch to fullscreen mode.<br><br>Click the button below to continue.</p>',
+    button_label: 'Enter Fullscreen'
+});
+
+// --- Initialize WebGazer ---
+timeline.push({
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `
+        <div class="instructions">
+            <h2>STAIRCASE PROSACCADE TASK</h2>
+            <p>This experiment uses your webcam to track eye movements.</p>
+            <p><strong>You will need to allow camera access.</strong></p>
+            <br>
+            <p>Your task:</p>
+            <ul>
+                <li>Look at the center dot</li>
+                <li>When a green target appears, look at it as quickly as possible</li>
+            </ul>
+            <p>The task will adapt to find your fastest reliable saccade speed.</p>
+            <p>We will first calibrate the eye tracker.</p>
+        </div>
+    `,
+    choices: ['Start Camera & Calibration'],
+    on_finish: async function() {
+        calculateScreenRegions();
+        try {
+            await initWebGazer();
+            document.getElementById('gaze-indicator').style.display = 'block';
+        } catch (e) {
+            alert('Could not access camera. Please allow camera permissions and refresh.');
+        }
+    }
+});
+
+// --- Calibration ---
+timeline.push({
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: createCalibrationHTML,
+    choices: "NO_KEYS",
+    on_load: function() {
+        calculateScreenRegions();
+        calibrationClicks = {};
+        document.addEventListener('click', handleCalibrationClick);
+
+        const checkComplete = setInterval(() => {
+            if (isCalibrationComplete()) {
+                clearInterval(checkComplete);
+                document.removeEventListener('click', handleCalibrationClick);
+                jsPsych.finishTrial();
+            }
+        }, 100);
+    }
+});
+
+// --- Calibration Complete ---
+timeline.push({
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: `
+        <div class="instructions">
+            <h2>CALIBRATION COMPLETE</h2>
+            <p>Great! The eye tracker is calibrated.</p>
+            <br>
+            <p>Now you'll do ${N_PRACTICE_TRIALS} practice trials.</p>
+            <p>Look at the center dot, then look at the green target when it appears.</p>
+            <p class="continue-text">Press SPACE to start practice</p>
+        </div>
+    `,
+    choices: [' ']
+});
+
+// --- Practice Trials ---
+const practiceTrialProcedure = {
+    timeline: [
+        {
+            type: jsPsychCallFunction,
+            func: function() {
+                setupTrial(true);
+                practiceTrialCount++;
+                startGazeTracking();
+            }
+        },
+        // Fixation
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: generateFixationHTML,
+            choices: "NO_KEYS",
+            trial_duration: FIXATION_DURATION
+        },
+        // Gap or Overlap
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() {
+                if (currentTrial.gap > 0) {
+                    return generateGapHTML();  // Gap: remove fixation
+                } else {
+                    return generateFixationHTML();  // Overlap: keep fixation
+                }
+            },
+            choices: "NO_KEYS",
+            trial_duration: function() {
+                return Math.abs(currentTrial.gap);
+            },
+            on_finish: function(data) {
+                data.targetOnsetTime = performance.now() - trialStartTime;
+            }
+        },
+        // Target
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() {
+                const showFixation = currentTrial.gap < 0;  // Overlap: show fixation with target
+                return generateTargetHTML(currentTrial.targetSide, showFixation);
+            },
+            choices: "NO_KEYS",
+            trial_duration: TARGET_DURATION,
+            data: { trial_type: 'saccade-trial', practice: true },
+            on_finish: function(data) {
+                stopGazeTracking();
+                const allData = jsPsych.data.get().values();
+                let targetOnsetTime = FIXATION_DURATION + Math.abs(currentTrial.gap);
+                for (let i = allData.length - 1; i >= 0; i--) {
+                    if (allData[i].targetOnsetTime) {
+                        targetOnsetTime = allData[i].targetOnsetTime;
+                        break;
+                    }
+                }
+                analyzeGazeData(targetOnsetTime);
+
+                data.trialNum = practiceTrialCount;
+                data.targetSide = currentTrial.targetSide;
+                data.gap = currentTrial.gap;
+                data.saccadeLatency = currentTrial.saccadeLatency;
+                data.saccadeAccuracy = currentTrial.saccadeAccuracy;
+                data.saccadeDuration = currentTrial.saccadeDuration;
+                data.gazeLeftCenter = currentTrial.gazeLeftCenter;
+                data.gazeReachedTarget = currentTrial.gazeReachedTarget;
+                data.success = currentTrial.success;
+            }
+        },
+        // Feedback
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() {
+                const lastTrial = jsPsych.data.get().last(1).values()[0];
+                if (!lastTrial.gazeLeftCenter) {
+                    return '<div class="feedback error">Look at the target when it appears!</div>';
+                } else if (!lastTrial.gazeReachedTarget) {
+                    return '<div class="feedback error">Try to look directly at the green target.</div>';
+                } else if (!lastTrial.saccadeAccuracy) {
+                    return '<div class="feedback error">Look at the green target, not the other side!</div>';
+                } else {
+                    return `<div class="feedback success">Good! Latency: ${lastTrial.saccadeLatency?.toFixed(0)} ms</div>`;
+                }
+            },
+            choices: "NO_KEYS",
+            trial_duration: 1500
+        }
+    ],
+    loop_function: function() {
+        return practiceTrialCount < N_PRACTICE_TRIALS;
+    }
+};
+timeline.push(practiceTrialProcedure);
+
+// --- Main Experiment Instructions ---
+timeline.push({
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: `
+        <div class="instructions">
+            <h2>MAIN EXPERIMENT</h2>
+            <p>Practice complete!</p>
+            <p>The task will now adapt to find your fastest reliable saccade speed.</p>
+            <p>The gaze indicator will be hidden.</p>
+            <p class="continue-text">Press SPACE to start</p>
+        </div>
+    `,
+    choices: [' '],
+    on_load: function() {
+        document.getElementById('gaze-indicator').style.display = 'none';
+    }
+});
+
+// --- Main Trials with Staircase ---
+const mainTrialProcedure = {
+    timeline: [
+        {
+            type: jsPsychCallFunction,
+            func: function() {
+                setupTrial(false);
+                mainTrialCount++;
+                startGazeTracking();
+            }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: generateFixationHTML,
+            choices: "NO_KEYS",
+            trial_duration: FIXATION_DURATION
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() {
+                return currentTrial.gap > 0 ? generateGapHTML() : generateFixationHTML();
+            },
+            choices: "NO_KEYS",
+            trial_duration: function() { return Math.abs(currentTrial.gap); },
+            on_finish: function(data) {
+                data.targetOnsetTime = performance.now() - trialStartTime;
+            }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() {
+                return generateTargetHTML(currentTrial.targetSide, currentTrial.gap < 0);
+            },
+            choices: "NO_KEYS",
+            trial_duration: TARGET_DURATION,
+            data: { trial_type: 'saccade-trial', practice: false },
+            on_finish: function(data) {
+                stopGazeTracking();
+
+                const allData = jsPsych.data.get().values();
+                let targetOnsetTime = FIXATION_DURATION + Math.abs(currentTrial.gap);
+                for (let i = allData.length - 1; i >= 0; i--) {
+                    if (allData[i].targetOnsetTime) {
+                        targetOnsetTime = allData[i].targetOnsetTime;
+                        break;
+                    }
+                }
+                analyzeGazeData(targetOnsetTime);
+
+                // Update staircase
+                const reversal = updateStaircase(currentTrial.success);
+
+                data.trialNum = mainTrialCount;
+                data.targetSide = currentTrial.targetSide;
+                data.gap = currentTrial.gap;
+                data.saccadeLatency = currentTrial.saccadeLatency;
+                data.saccadeAccuracy = currentTrial.saccadeAccuracy;
+                data.saccadeDuration = currentTrial.saccadeDuration;
+                data.gazeLeftCenter = currentTrial.gazeLeftCenter;
+                data.gazeReachedTarget = currentTrial.gazeReachedTarget;
+                data.success = currentTrial.success;
+                data.reversal = reversal;
+                data.nReversals = staircase.reversals.length;
+                data.stepSize = staircase.stepSize;
+            }
+        }
+    ],
+    loop_function: function() {
+        return !isStaircaseFinished() && mainTrialCount < N_TRIALS_MAX;
+    }
+};
+timeline.push(mainTrialProcedure);
+
+// --- Results ---
+timeline.push({
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: function() {
+        const threshold = getThreshold();
+        const data = jsPsych.data.get().filterCustom(function(trial) {
+            return trial.trial_type === 'saccade-trial' && trial.practice === false;
+        });
+
+        const validTrials = data.filterCustom(t => t.gazeLeftCenter && t.gazeReachedTarget);
+        const latencies = validTrials.select('saccadeLatency').values.filter(v => v !== null);
+        const meanLatency = latencies.length > 0 ?
+            latencies.reduce((a, b) => a + b, 0) / latencies.length : 0;
+
+        return `
+            <div class="results">
+                <h2>EXPERIMENT COMPLETE</h2>
+                <p>Total trials: ${mainTrialCount}</p>
+                <p>Reversals: ${staircase.reversals.length}</p>
+                <br>
+                <p><strong>Minimum Gap for Reliable Saccade:</strong></p>
+                <p style="font-size: 36px; color: #66ff66;">${threshold.toFixed(1)} ms</p>
+                <p style="font-size: 16px; color: #aaa;">${threshold < 0 ? '(Overlap condition - fixation stays on)' : '(Gap condition - fixation removed)'}</p>
+                <br>
+                <p><strong>Mean Saccade Latency:</strong></p>
+                <p style="font-size: 28px; color: #ffaa66;">${meanLatency.toFixed(1)} ms</p>
+                <br>
+                <p>Thank you for participating!</p>
+                <p style="color: #aaa; margin-top: 30px;">Press SPACE to download data and exit</p>
+            </div>
+        `;
+    },
+    choices: [' '],
+    on_finish: function() {
+        const allData = jsPsych.data.get().filterCustom(function(trial) {
+            return trial.trial_type === 'saccade-trial' && trial.practice === false;
+        });
+
+        const summaryData = allData.values().map(trial => ({
+            trialNum: trial.trialNum,
+            targetSide: trial.targetSide,
+            gap: trial.gap,
+            saccadeLatency: trial.saccadeLatency?.toFixed(1),
+            saccadeDuration: trial.saccadeDuration?.toFixed(1),
+            saccadeAccuracy: trial.saccadeAccuracy,
+            gazeLeftCenter: trial.gazeLeftCenter,
+            gazeReachedTarget: trial.gazeReachedTarget,
+            success: trial.success,
+            reversal: trial.reversal,
+            nReversals: trial.nReversals,
+            stepSize: trial.stepSize
+        }));
+
+        const headers = ['trialNum', 'targetSide', 'gap', 'saccadeLatency', 'saccadeDuration', 'saccadeAccuracy', 'gazeLeftCenter', 'gazeReachedTarget', 'success', 'reversal', 'nReversals', 'stepSize'];
+        let csvContent = headers.join(',') + '\n';
+        summaryData.forEach(row => {
+            csvContent += headers.map(h => row[h]).join(',') + '\n';
+        });
+
+        const blob = new Blob([csvContent], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `staircase_saccade_${Date.now()}.csv`;
+        a.click();
+    }
+});
+
+// --- Exit Fullscreen ---
+timeline.push({
+    type: jsPsychFullscreen,
+    fullscreen_mode: false
+});
+
+// =============================================================================
+// RUN
+// =============================================================================
+jsPsych.run(timeline);
+</script>
+</html>
