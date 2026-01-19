@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Peak IOR Experiment</title>
+    <script src="https://unpkg.com/jspsych@7.3.4"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@1.1.3"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-button-response@1.1.3"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-preload@1.1.3"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-fullscreen@1.2.1"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-call-function@1.1.3"></script>
+    <link href="https://unpkg.com/jspsych@7.3.4/css/jspsych.css" rel="stylesheet" type="text/css" />
+    <style>
+        body {
+            background-color: black;
+        }
+        .jspsych-content {
+            max-width: 100%;
+        }
+        .jspsych-content-wrapper {
+            background-color: black;
+        }
+        .trial-container {
+            position: relative;
+            width: 800px;
+            height: 400px;
+            margin: 0 auto;
+            background-color: black;
+        }
+        .fixation {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 48px;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        .box {
+            position: absolute;
+            width: 80px;
+            height: 80px;
+            border: 3px solid white;
+            top: 50%;
+            transform: translateY(-50%);
+            background-color: rgba(0, 0, 0, 0.5);
+            box-sizing: border-box;
+        }
+        .left-box {
+            left: 150px;
+        }
+        .right-box {
+            right: 150px;
+        }
+        .cue, .target {
+            position: absolute;
+            width: 74px;
+            height: 74px;
+            background-color: white;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+        .cue-left, .target-left {
+            left: 153px;
+        }
+        .cue-right, .target-right {
+            right: 153px;
+        }
+        .instructions {
+            color: white;
+            font-size: 20px;
+            line-height: 1.6;
+            max-width: 700px;
+            margin: 0 auto;
+            text-align: left;
+        }
+        .instructions h2 {
+            text-align: center;
+        }
+        .continue-text {
+            text-align: center;
+            margin-top: 30px;
+            color: #aaa;
+        }
+        .feedback {
+            color: white;
+            font-size: 32px;
+            text-align: center;
+        }
+        .feedback.error {
+            color: #ff6666;
+        }
+        .results {
+            color: white;
+            font-size: 24px;
+            line-height: 1.8;
+            text-align: center;
+        }
+    </style>
+</head>
+<body></body>
+<script>
+// =============================================================================
+// PEAK IOR EXPERIMENT - jsPsych Version
+// =============================================================================
+// This experiment uses an adaptive staircase to find the SOA that produces
+// the MAXIMUM IOR effect (largest RT difference: invalid - valid).
+//
+// Unlike the crossover experiment (which finds where IOR = 0), this finds
+// where IOR is strongest.
+//
+// Strategy: Use a "hill-climbing" approach that tracks the IOR magnitude
+// and moves toward SOAs that produce larger effects.
+// =============================================================================
+
+// --- Staircase Parameters ---
+const MIN_SOA = 100;      // 100ms minimum (past facilitation zone)
+const MAX_SOA = 800;      // 800ms maximum
+const START_SOA = 300;    // Starting point (typical peak IOR region)
+const STEP_SIZE_INITIAL = 75;   // 75ms initial step
+const STEP_SIZE_MIN = 15;       // 15ms minimum step
+const N_REVERSALS = 14;         // Reversals before stopping
+const N_TRIALS_MAX = 250;       // Maximum trials
+const RT_WINDOW = 6;            // Trials to average for comparison (more for stability)
+
+// --- Timing Parameters (in ms) ---
+const FIXATION_DURATION = 750;
+const CUE_DURATION = 50;
+const TARGET_DURATION = 1000;
+
+// --- Practice Parameters ---
+const N_PRACTICE_TRIALS = 15;
+const PRACTICE_SOAS = [150, 300, 450];
+
+// --- Staircase State ---
+let staircase = {
+    currentSOA: START_SOA,
+    stepSize: STEP_SIZE_INITIAL,
+    validRTs: [],       // Array of {soa, rt}
+    invalidRTs: [],     // Array of {soa, rt}
+    soaHistory: [],
+    iorHistory: [],     // IOR magnitude at each update
+    reversals: [],
+    lastDirection: null,
+    lastIOR: null,      // Previous IOR magnitude for comparison
+};
+
+// --- Current Trial Variables ---
+let currentTrial = {
+    cueSide: 'left',
+    targetSide: 'left',
+    validity: 'valid',
+    correctResponse: 'f',
+    soa: 300,
+    isPractice: false
+};
+
+// --- Trial Counter ---
+let mainTrialCount = 0;
+let practiceTrialCount = 0;
+
+// --- Helper Functions ---
+function getRecentRTs(n = RT_WINDOW) {
+    // Get RTs near the current SOA (within 100ms)
+    const soaTolerance = 100;
+    const currentSOA = staircase.currentSOA;
+
+    const recentValid = staircase.validRTs
+        .filter(x => Math.abs(x.soa - currentSOA) <= soaTolerance)
+        .slice(-n)
+        .map(x => x.rt);
+
+    const recentInvalid = staircase.invalidRTs
+        .filter(x => Math.abs(x.soa - currentSOA) <= soaTolerance)
+        .slice(-n)
+        .map(x => x.rt);
+
+    return { recentValid, recentInvalid };
+}
+
+function calculateIOR() {
+    const { recentValid, recentInvalid } = getRecentRTs(RT_WINDOW);
+
+    if (recentValid.length < 3 || recentInvalid.length < 3) {
+        return null;
+    }
+
+    const meanValid = recentValid.reduce((a, b) => a + b, 0) / recentValid.length;
+    const meanInvalid = recentInvalid.reduce((a, b) => a + b, 0) / recentInvalid.length;
+
+    // IOR magnitude = valid RT - invalid RT (positive = IOR present)
+    return meanValid - meanInvalid;
+}
+
+function shouldUpdateStaircase() {
+    const { recentValid, recentInvalid } = getRecentRTs(RT_WINDOW);
+    return recentValid.length >= 3 && recentInvalid.length >= 3;
+}
+
+function updateStaircase() {
+    const currentIOR = calculateIOR();
+
+    if (currentIOR === null) {
+        return { newSOA: staircase.currentSOA, reversal: false };
+    }
+
+    staircase.iorHistory.push({ soa: staircase.currentSOA, ior: currentIOR });
+    staircase.soaHistory.push(staircase.currentSOA);
+
+    let reversal = false;
+    let newDirection = null;
+
+    // If we don't have a previous IOR to compare, just pick a direction
+    if (staircase.lastIOR === null) {
+        // Start by going up (toward longer SOAs)
+        newDirection = 'up';
+        staircase.currentSOA = Math.min(MAX_SOA, staircase.currentSOA + staircase.stepSize);
+        staircase.lastDirection = newDirection;
+        staircase.lastIOR = currentIOR;
+        return { newSOA: staircase.currentSOA, reversal: false };
+    }
+
+    // Compare current IOR to previous
+    const iorIncreased = currentIOR > staircase.lastIOR;
+    const iorDecreased = currentIOR < staircase.lastIOR;
+
+    // If IOR increased, keep going in the same direction
+    // If IOR decreased, reverse direction (we overshot the peak)
+    if (iorDecreased) {
+        // We moved away from the peak, reverse!
+        if (staircase.lastDirection === 'up') {
+            newDirection = 'down';
+        } else {
+            newDirection = 'up';
+        }
+        reversal = true;
+        staircase.reversals.push(staircase.currentSOA);
+        staircase.stepSize = Math.max(STEP_SIZE_MIN, staircase.stepSize * 0.7);
+    } else {
+        // IOR increased or stayed same, keep going
+        newDirection = staircase.lastDirection || 'up';
+    }
+
+    // Apply the step
+    if (newDirection === 'up') {
+        staircase.currentSOA = Math.min(MAX_SOA, staircase.currentSOA + staircase.stepSize);
+    } else {
+        staircase.currentSOA = Math.max(MIN_SOA, staircase.currentSOA - staircase.stepSize);
+    }
+
+    staircase.lastDirection = newDirection;
+    staircase.lastIOR = currentIOR;
+
+    return { newSOA: staircase.currentSOA, reversal };
+}
+
+function isStaircaseFinished() {
+    return staircase.reversals.length >= N_REVERSALS;
+}
+
+function getPeakSOA() {
+    // Find the SOA with the maximum IOR from our history
+    if (staircase.iorHistory.length < 4) {
+        return staircase.currentSOA;
+    }
+
+    // Use last several reversals as the estimate
+    if (staircase.reversals.length >= 4) {
+        const nUse = Math.min(10, staircase.reversals.length);
+        const lastReversals = staircase.reversals.slice(-nUse);
+        return lastReversals.reduce((a, b) => a + b, 0) / lastReversals.length;
+    }
+
+    // Fallback: find max IOR in history
+    let maxIOR = -Infinity;
+    let peakSOA = staircase.currentSOA;
+    for (const entry of staircase.iorHistory) {
+        if (entry.ior > maxIOR) {
+            maxIOR = entry.ior;
+            peakSOA = entry.soa;
+        }
+    }
+    return peakSOA;
+}
+
+function getMaxIOR() {
+    if (staircase.iorHistory.length === 0) return 0;
+    return Math.max(...staircase.iorHistory.map(x => x.ior));
+}
+
+// Generate trial stimulus HTML
+function generateTrialHTML(phase) {
+    let html = '<div class="trial-container">';
+    html += '<div class="fixation">+</div>';
+    html += '<div class="box left-box"></div>';
+    html += '<div class="box right-box"></div>';
+
+    if (phase === 'cue') {
+        html += `<div class="cue cue-${currentTrial.cueSide}"></div>`;
+    }
+
+    if (phase === 'target') {
+        html += `<div class="target target-${currentTrial.targetSide}"></div>`;
+    }
+
+    html += '</div>';
+    return html;
+}
+
+// Setup a new trial
+function setupNewTrial(isPractice) {
+    currentTrial.isPractice = isPractice;
+    currentTrial.cueSide = Math.random() < 0.5 ? 'left' : 'right';
+    currentTrial.validity = Math.random() < 0.5 ? 'valid' : 'invalid';
+    currentTrial.targetSide = currentTrial.validity === 'valid' ?
+        currentTrial.cueSide :
+        (currentTrial.cueSide === 'left' ? 'right' : 'left');
+    currentTrial.correctResponse = currentTrial.targetSide === 'left' ? 'f' : 'j';
+
+    if (isPractice) {
+        currentTrial.soa = PRACTICE_SOAS[Math.floor(Math.random() * PRACTICE_SOAS.length)];
+    } else {
+        currentTrial.soa = staircase.currentSOA;
+    }
+}
+
+// =============================================================================
+// INITIALIZE JSPSYCH
+// =============================================================================
+const jsPsych = initJsPsych({
+    on_finish: function() {
+        const peakSOA = getPeakSOA();
+        const maxIOR = getMaxIOR();
+        console.log('Experiment complete!');
+        console.log('Peak IOR SOA:', peakSOA.toFixed(1), 'ms');
+        console.log('Max IOR magnitude:', maxIOR.toFixed(1), 'ms');
+        console.log('Total reversals:', staircase.reversals.length);
+    }
+});
+
+// =============================================================================
+// EXPERIMENT TIMELINE
+// =============================================================================
+let timeline = [];
+
+// --- Fullscreen ---
+timeline.push({
+    type: jsPsychFullscreen,
+    fullscreen_mode: true,
+    message: '<p style="color: white; font-size: 20px;">The experiment will switch to fullscreen mode.<br><br>Click the button below to continue.</p>',
+    button_label: 'Enter Fullscreen'
+});
+
+// --- Instructions ---
+timeline.push({
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: `
+        <div class="instructions">
+            <h2>PEAK IOR EXPERIMENT</h2>
+            <p>Focus your eyes on the <strong>plus sign (+)</strong> at all times.</p>
+            <p>Two white squares will appear one after the other:</p>
+            <ul>
+                <li>The <strong>first square</strong> is the cue — <em>ignore it</em></li>
+                <li>The <strong>second square</strong> is the target — <em>respond to it</em></li>
+            </ul>
+            <p><strong>Your task:</strong></p>
+            <ul>
+                <li>Press <strong>F</strong> if the target appears in the <strong>LEFT</strong> box</li>
+                <li>Press <strong>J</strong> if the target appears in the <strong>RIGHT</strong> box</li>
+            </ul>
+            <p>Respond as <strong>QUICKLY</strong> and <strong>ACCURATELY</strong> as possible.</p>
+            <p class="continue-text">Press SPACE to continue</p>
+        </div>
+    `,
+    choices: [' ']
+});
+
+// --- Practice Instructions ---
+timeline.push({
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: `
+        <div class="instructions">
+            <h2>PRACTICE TRIALS</h2>
+            <p>You will now have ${N_PRACTICE_TRIALS} practice trials.</p>
+            <p>Remember:</p>
+            <ul>
+                <li>Keep your eyes on the + sign</li>
+                <li>Respond only to the second square (target)</li>
+                <li>Press <strong>F</strong> for LEFT, <strong>J</strong> for RIGHT</li>
+            </ul>
+            <p class="continue-text">Press F or J to start practice</p>
+        </div>
+    `,
+    choices: ['f', 'j']
+});
+
+// --- Practice Trial Procedure ---
+const practiceTrialProcedure = {
+    timeline: [
+        {
+            type: jsPsychCallFunction,
+            func: function() {
+                setupNewTrial(true);
+                practiceTrialCount++;
+            }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return generateTrialHTML('fixation'); },
+            choices: "NO_KEYS",
+            trial_duration: FIXATION_DURATION
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return generateTrialHTML('cue'); },
+            choices: "NO_KEYS",
+            trial_duration: CUE_DURATION
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return generateTrialHTML('fixation'); },
+            choices: "NO_KEYS",
+            trial_duration: function() {
+                return Math.max(0, currentTrial.soa - CUE_DURATION);
+            }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return generateTrialHTML('target'); },
+            choices: ['f', 'j'],
+            trial_duration: TARGET_DURATION,
+            data: {
+                trial_type: 'ior-trial',
+                practice: true
+            },
+            on_finish: function(data) {
+                data.cueSide = currentTrial.cueSide;
+                data.targetSide = currentTrial.targetSide;
+                data.validity = currentTrial.validity;
+                data.correctResponse = currentTrial.correctResponse;
+                data.soa = currentTrial.soa;
+                data.correct = data.response === currentTrial.correctResponse;
+            }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() {
+                const lastTrial = jsPsych.data.get().last(1).values()[0];
+                if (lastTrial.response === null) {
+                    return '<div class="feedback error">Too slow! Respond faster.</div>';
+                } else if (!lastTrial.correct) {
+                    return '<div class="feedback error">Incorrect! F = Left, J = Right</div>';
+                }
+                return '';
+            },
+            choices: "NO_KEYS",
+            trial_duration: function() {
+                const lastTrial = jsPsych.data.get().last(1).values()[0];
+                return (lastTrial.response === null || !lastTrial.correct) ? 1500 : 0;
+            }
+        }
+    ],
+    loop_function: function() {
+        return practiceTrialCount < N_PRACTICE_TRIALS;
+    }
+};
+timeline.push(practiceTrialProcedure);
+
+// --- Main Experiment Instructions ---
+timeline.push({
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: `
+        <div class="instructions">
+            <h2>MAIN EXPERIMENT</h2>
+            <p>Practice complete! The main experiment will now begin.</p>
+            <p>The task will adapt based on your responses.</p>
+            <p>Continue until you see the completion screen.</p>
+            <p class="continue-text">Press F or J to start</p>
+        </div>
+    `,
+    choices: ['f', 'j']
+});
+
+// --- Main Trial Procedure ---
+const mainTrialProcedure = {
+    timeline: [
+        {
+            type: jsPsychCallFunction,
+            func: function() {
+                setupNewTrial(false);
+                mainTrialCount++;
+            }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return generateTrialHTML('fixation'); },
+            choices: "NO_KEYS",
+            trial_duration: FIXATION_DURATION
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return generateTrialHTML('cue'); },
+            choices: "NO_KEYS",
+            trial_duration: CUE_DURATION
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return generateTrialHTML('fixation'); },
+            choices: "NO_KEYS",
+            trial_duration: function() {
+                return Math.max(0, currentTrial.soa - CUE_DURATION);
+            }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return generateTrialHTML('target'); },
+            choices: ['f', 'j'],
+            trial_duration: TARGET_DURATION,
+            data: {
+                trial_type: 'ior-trial',
+                practice: false
+            },
+            on_finish: function(data) {
+                data.cueSide = currentTrial.cueSide;
+                data.targetSide = currentTrial.targetSide;
+                data.validity = currentTrial.validity;
+                data.correctResponse = currentTrial.correctResponse;
+                data.soa = currentTrial.soa;
+                data.correct = data.response === currentTrial.correctResponse;
+                data.mainTrialNum = mainTrialCount;
+                data.nReversals = staircase.reversals.length;
+                data.stepSize = staircase.stepSize;
+
+                // Update staircase for correct trials with valid RTs
+                if (data.correct && data.rt !== null && data.rt > 100) {
+                    if (currentTrial.validity === 'valid') {
+                        staircase.validRTs.push({ soa: currentTrial.soa, rt: data.rt });
+                    } else {
+                        staircase.invalidRTs.push({ soa: currentTrial.soa, rt: data.rt });
+                    }
+
+                    if (shouldUpdateStaircase()) {
+                        const { reversal } = updateStaircase();
+                        data.reversal = reversal;
+                        data.currentIOR = staircase.lastIOR;
+                        if (reversal) {
+                            console.log(`Reversal ${staircase.reversals.length}: SOA = ${staircase.currentSOA}ms, IOR = ${staircase.lastIOR?.toFixed(1)}ms`);
+                        }
+                    }
+                }
+            }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() {
+                const lastTrial = jsPsych.data.get().last(1).values()[0];
+                if (lastTrial.response === null) {
+                    return '<div class="feedback error">Too slow!</div>';
+                } else if (!lastTrial.correct) {
+                    return '<div class="feedback error">Incorrect!</div>';
+                }
+                return '';
+            },
+            choices: "NO_KEYS",
+            trial_duration: function() {
+                const lastTrial = jsPsych.data.get().last(1).values()[0];
+                return (lastTrial.response === null || !lastTrial.correct) ? 500 : 0;
+            }
+        }
+    ],
+    loop_function: function() {
+        return !isStaircaseFinished() && mainTrialCount < N_TRIALS_MAX;
+    }
+};
+timeline.push(mainTrialProcedure);
+
+// --- Results Screen ---
+timeline.push({
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: function() {
+        const peakSOA = getPeakSOA();
+        const maxIOR = getMaxIOR();
+        const data = jsPsych.data.get().filter({trial_type: 'ior-trial', practice: false});
+        const nTrials = data.count();
+        const nCorrect = data.filterCustom(function(trial) {
+            return trial.correct === true;
+        }).count();
+        const accuracy = nTrials > 0 ? (nCorrect / nTrials * 100) : 0;
+
+        console.log('Trial data:', data.values());
+        console.log('IOR history:', staircase.iorHistory);
+
+        return `
+            <div class="results">
+                <h2>EXPERIMENT COMPLETE</h2>
+                <p>Total trials: ${nTrials}</p>
+                <p>Accuracy: ${accuracy.toFixed(1)}%</p>
+                <p>Reversals: ${staircase.reversals.length}</p>
+                <br>
+                <p><strong>SOA with Peak IOR:</strong></p>
+                <p style="font-size: 36px; color: #66ff66;">${peakSOA.toFixed(1)} ms</p>
+                <p><strong>Maximum IOR magnitude:</strong></p>
+                <p style="font-size: 28px; color: #ffaa66;">${maxIOR.toFixed(1)} ms</p>
+                <br>
+                <p>Thank you for participating!</p>
+                <p style="color: #aaa; margin-top: 30px;">Press SPACE to finish and download data</p>
+            </div>
+        `;
+    },
+    choices: [' '],
+    on_finish: function() {
+        const filename = `peak_ior_${Date.now()}.csv`;
+        jsPsych.data.get().filter({trial_type: 'ior-trial'}).localSave('csv', filename);
+    }
+});
+
+// --- Exit Fullscreen ---
+timeline.push({
+    type: jsPsychFullscreen,
+    fullscreen_mode: false
+});
+
+// =============================================================================
+// RUN EXPERIMENT
+// =============================================================================
+jsPsych.run(timeline);
+</script>
+</html>
