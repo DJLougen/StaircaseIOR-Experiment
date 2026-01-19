@@ -469,15 +469,17 @@ const mainTrialProcedure = {
                 practice: false
             },
             on_finish: function(data) {
+                data.trialNum = mainTrialCount;
                 data.cueSide = currentTrial.cueSide;
                 data.targetSide = currentTrial.targetSide;
                 data.validity = currentTrial.validity;
                 data.correctResponse = currentTrial.correctResponse;
                 data.soa = currentTrial.soa;
                 data.correct = data.response === currentTrial.correctResponse;
-                data.mainTrialNum = mainTrialCount;
                 data.nReversals = staircase.reversals.length;
                 data.stepSize = staircase.stepSize;
+                data.currentSOA = staircase.currentSOA;
+                data.reversal = false;
 
                 // Update staircase for correct trials with valid RTs
                 if (data.correct && data.rt !== null && data.rt > 100) {
@@ -490,6 +492,7 @@ const mainTrialProcedure = {
                     if (shouldUpdateStaircase()) {
                         const { reversal } = updateStaircase();
                         data.reversal = reversal;
+                        data.nReversals = staircase.reversals.length;
                         if (reversal) {
                             console.log(`Reversal ${staircase.reversals.length}: SOA = ${staircase.currentSOA}ms`);
                         }
@@ -544,8 +547,43 @@ timeline.push({
     },
     choices: [' '],
     on_finish: function() {
-        const filename = `staircase_ior_${Date.now()}.csv`;
-        jsPsych.data.get().filter({trial_type: 'ior-trial'}).localSave('csv', filename);
+        // Get all main trial data
+        const allData = jsPsych.data.get().filterCustom(function(trial) {
+            return trial.trial_type === 'ior-trial' && trial.practice === false;
+        });
+
+        // Save full trial data
+        const filename = `crossover_ior_${Date.now()}.csv`;
+        allData.localSave('csv', filename);
+
+        // Also create a summary CSV with key columns for plotting
+        const summaryData = allData.values().map(trial => ({
+            trialNum: trial.trialNum,
+            soa: trial.soa,
+            validity: trial.validity,
+            rt: trial.rt,
+            correct: trial.correct,
+            response: trial.response,
+            cueSide: trial.cueSide,
+            targetSide: trial.targetSide,
+            reversal: trial.reversal,
+            nReversals: trial.nReversals,
+            stepSize: trial.stepSize
+        }));
+
+        // Convert to CSV manually for clean output
+        const headers = ['trialNum', 'soa', 'validity', 'rt', 'correct', 'response', 'cueSide', 'targetSide', 'reversal', 'nReversals', 'stepSize'];
+        let csvContent = headers.join(',') + '\n';
+        summaryData.forEach(row => {
+            csvContent += headers.map(h => row[h]).join(',') + '\n';
+        });
+
+        const blob = new Blob([csvContent], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `crossover_ior_clean_${Date.now()}.csv`;
+        a.click();
     }
 });
 
