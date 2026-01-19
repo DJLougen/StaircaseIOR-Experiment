@@ -527,13 +527,11 @@ timeline.push({
     type: jsPsychHtmlKeyboardResponse,
     stimulus: function() {
         const threshold = getThreshold();
-        const data = jsPsych.data.get().filter({trial_type: 'ior-trial', practice: false});
-        const nTrials = data.count();
 
         return `
             <div class="results">
                 <h2>EXPERIMENT COMPLETE</h2>
-                <p>Total trials: ${nTrials}</p>
+                <p>Total trials: ${mainTrialCount}</p>
                 <p>Reversals: ${staircase.reversals.length}</p>
                 <br>
                 <p><strong>Estimated IOR crossover point:</strong></p>

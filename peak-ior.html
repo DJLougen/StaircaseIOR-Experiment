@@ -579,20 +579,11 @@ timeline.push({
     stimulus: function() {
         const peakSOA = getPeakSOA();
         const maxIOR = getMaxIOR();
-        const data = jsPsych.data.get().filter({trial_type: 'ior-trial', practice: false});
-        const nTrials = data.count();
-        const nCorrect = data.filterCustom(function(trial) {
-            return trial.correct === true;
-        }).count();
-        const accuracy = nTrials > 0 ? (nCorrect / nTrials * 100) : 0;
-
-        console.log('Trial data:', data.values());
-        console.log('IOR history:', staircase.iorHistory);
 
         return `
             <div class="results">
                 <h2>EXPERIMENT COMPLETE</h2>
-                <p>Total trials: ${nTrials}</p>
+                <p>Total trials: ${mainTrialCount}</p>
                 <p>Reversals: ${staircase.reversals.length}</p>
                 <br>
                 <p><strong>SOA with Peak IOR:</strong></p>
