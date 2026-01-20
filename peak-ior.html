@@ -102,20 +102,23 @@
 // =============================================================================
 // PEAK IOR EXPERIMENT - jsPsych Version
 // =============================================================================
-// This experiment uses an adaptive staircase to find the SOA that produces
+// This experiment uses an adaptive staircase to find the ISI that produces
 // the MAXIMUM IOR effect (largest RT difference: invalid - valid).
+//
+// ISI = Inter-Stimulus Interval (gap between cue offset and target onset)
 //
 // Unlike the crossover experiment (which finds where IOR = 0), this finds
 // where IOR is strongest.
 //
 // Strategy: Use a "hill-climbing" approach that tracks the IOR magnitude
-// and moves toward SOAs that produce larger effects.
+// and moves toward ISIs that produce larger effects.
 // =============================================================================
 
 // --- Staircase Parameters ---
-const MIN_SOA = 100;      // 100ms minimum (past facilitation zone)
-const MAX_SOA = 800;      // 800ms maximum
-const START_SOA = 300;    // Starting point (typical peak IOR region)
+// ISI = Inter-Stimulus Interval (gap between cue offset and target onset)
+const MIN_ISI = 100;      // 100ms minimum (past facilitation zone)
+const MAX_ISI = 800;      // 800ms maximum
+const START_ISI = 300;    // Starting point (typical peak IOR region)
 const STEP_SIZE_INITIAL = 75;   // 75ms initial step
 const STEP_SIZE_MIN = 15;       // 15ms minimum step
 const N_REVERSALS = 14;         // Reversals before stopping
@@ -129,15 +132,15 @@ const TARGET_DURATION = 1000;
 
 // --- Practice Parameters ---
 const N_PRACTICE_TRIALS = 15;
-const PRACTICE_SOAS = [150, 300, 450];
+const PRACTICE_ISIS = [150, 300, 450];
 
 // --- Staircase State ---
 let staircase = {
-    currentSOA: START_SOA,
+    currentISI: START_ISI,
     stepSize: STEP_SIZE_INITIAL,
-    validRTs: [],       // Array of {soa, rt}
-    invalidRTs: [],     // Array of {soa, rt}
-    soaHistory: [],
+    validRTs: [],       // Array of {isi, rt}
+    invalidRTs: [],     // Array of {isi, rt}
+    isiHistory: [],
     iorHistory: [],     // IOR magnitude at each update
     reversals: [],
     lastDirection: null,
@@ -150,7 +153,7 @@ let currentTrial = {
     targetSide: 'left',
     validity: 'valid',
     correctResponse: 'f',
-    soa: 300,
+    isi: 300,
     isPractice: false
 };
 
@@ -160,17 +163,17 @@ let practiceTrialCount = 0;
 
 // --- Helper Functions ---
 function getRecentRTs(n = RT_WINDOW) {
-    // Get RTs near the current SOA (within 100ms)
-    const soaTolerance = 100;
-    const currentSOA = staircase.currentSOA;
+    // Get RTs near the current ISI (within 100ms)
+    const isiTolerance = 100;
+    const currentISI = staircase.currentISI;
 
     const recentValid = staircase.validRTs
-        .filter(x => Math.abs(x.soa - currentSOA) <= soaTolerance)
+        .filter(x => Math.abs(x.isi - currentISI) <= isiTolerance)
         .slice(-n)
         .map(x => x.rt);
 
     const recentInvalid = staircase.invalidRTs
-        .filter(x => Math.abs(x.soa - currentSOA) <= soaTolerance)
+        .filter(x => Math.abs(x.isi - currentISI) <= isiTolerance)
         .slice(-n)
         .map(x => x.rt);
 
@@ -200,23 +203,23 @@ function updateStaircase() {
     const currentIOR = calculateIOR();
 
     if (currentIOR === null) {
-        return { newSOA: staircase.currentSOA, reversal: false };
+        return { newISI: staircase.currentISI, reversal: false };
     }
 
-    staircase.iorHistory.push({ soa: staircase.currentSOA, ior: currentIOR });
-    staircase.soaHistory.push(staircase.currentSOA);
+    staircase.iorHistory.push({ isi: staircase.currentISI, ior: currentIOR });
+    staircase.isiHistory.push(staircase.currentISI);
 
     let reversal = false;
     let newDirection = null;
 
     // If we don't have a previous IOR to compare, just pick a direction
     if (staircase.lastIOR === null) {
-        // Start by going up (toward longer SOAs)
+        // Start by going up (toward longer ISIs)
         newDirection = 'up';
-        staircase.currentSOA = Math.min(MAX_SOA, staircase.currentSOA + staircase.stepSize);
+        staircase.currentISI = Math.min(MAX_ISI, staircase.currentISI + staircase.stepSize);
         staircase.lastDirection = newDirection;
         staircase.lastIOR = currentIOR;
-        return { newSOA: staircase.currentSOA, reversal: false };
+        return { newISI: staircase.currentISI, reversal: false };
     }
 
     // Compare current IOR to previous
@@ -233,7 +236,7 @@ function updateStaircase() {
             newDirection = 'up';
         }
         reversal = true;
-        staircase.reversals.push(staircase.currentSOA);
+        staircase.reversals.push(staircase.currentISI);
         staircase.stepSize = Math.max(STEP_SIZE_MIN, staircase.stepSize * 0.7);
     } else {
         // IOR increased or stayed same, keep going
@@ -242,25 +245,25 @@ function updateStaircase() {
 
     // Apply the step
     if (newDirection === 'up') {
-        staircase.currentSOA = Math.min(MAX_SOA, staircase.currentSOA + staircase.stepSize);
+        staircase.currentISI = Math.min(MAX_ISI, staircase.currentISI + staircase.stepSize);
     } else {
-        staircase.currentSOA = Math.max(MIN_SOA, staircase.currentSOA - staircase.stepSize);
+        staircase.currentISI = Math.max(MIN_ISI, staircase.currentISI - staircase.stepSize);
     }
 
     staircase.lastDirection = newDirection;
     staircase.lastIOR = currentIOR;
 
-    return { newSOA: staircase.currentSOA, reversal };
+    return { newISI: staircase.currentISI, reversal };
 }
 
 function isStaircaseFinished() {
     return staircase.reversals.length >= N_REVERSALS;
 }
 
-function getPeakSOA() {
-    // Find the SOA with the maximum IOR from our history
+function getPeakISI() {
+    // Find the ISI with the maximum IOR from our history
     if (staircase.iorHistory.length < 4) {
-        return staircase.currentSOA;
+        return staircase.currentISI;
     }
 
     // Use last several reversals as the estimate
@@ -272,14 +275,14 @@ function getPeakSOA() {
 
     // Fallback: find max IOR in history
     let maxIOR = -Infinity;
-    let peakSOA = staircase.currentSOA;
+    let peakISI = staircase.currentISI;
     for (const entry of staircase.iorHistory) {
         if (entry.ior > maxIOR) {
             maxIOR = entry.ior;
-            peakSOA = entry.soa;
+            peakISI = entry.isi;
         }
     }
-    return peakSOA;
+    return peakISI;
 }
 
 function getMaxIOR() {
@@ -322,9 +325,9 @@ function setupNewTrial(isPractice) {
     currentTrial.correctResponse = currentTrial.targetSide === 'left' ? 'f' : 'j';
 
     if (isPractice) {
-        currentTrial.soa = PRACTICE_SOAS[Math.floor(Math.random() * PRACTICE_SOAS.length)];
+        currentTrial.isi = PRACTICE_ISIS[Math.floor(Math.random() * PRACTICE_ISIS.length)];
     } else {
-        currentTrial.soa = staircase.currentSOA;
+        currentTrial.isi = staircase.currentISI;
     }
 }
 
@@ -333,10 +336,10 @@ function setupNewTrial(isPractice) {
 // =============================================================================
 const jsPsych = initJsPsych({
     on_finish: function() {
-        const peakSOA = getPeakSOA();
+        const peakISI = getPeakISI();
         const maxIOR = getMaxIOR();
         console.log('Experiment complete!');
-        console.log('Peak IOR SOA:', peakSOA.toFixed(1), 'ms');
+        console.log('Peak IOR ISI:', peakISI.toFixed(1), 'ms');
         console.log('Max IOR magnitude:', maxIOR.toFixed(1), 'ms');
         console.log('Total reversals:', staircase.reversals.length);
     }
@@ -425,7 +428,7 @@ const practiceTrialProcedure = {
             stimulus: function() { return generateTrialHTML('fixation'); },
             choices: "NO_KEYS",
             trial_duration: function() {
-                return Math.max(0, currentTrial.soa - CUE_DURATION);
+                return currentTrial.isi;
             }
         },
         {
@@ -442,7 +445,7 @@ const practiceTrialProcedure = {
                 data.targetSide = currentTrial.targetSide;
                 data.validity = currentTrial.validity;
                 data.correctResponse = currentTrial.correctResponse;
-                data.soa = currentTrial.soa;
+                data.isi = currentTrial.isi;
                 data.correct = data.response === currentTrial.correctResponse;
             }
         },
@@ -519,7 +522,7 @@ const mainTrialProcedure = {
             stimulus: function() { return generateTrialHTML('fixation'); },
             choices: "NO_KEYS",
             trial_duration: function() {
-                return Math.max(0, currentTrial.soa - CUE_DURATION);
+                return currentTrial.isi;
             }
         },
         {
@@ -537,20 +540,20 @@ const mainTrialProcedure = {
                 data.targetSide = currentTrial.targetSide;
                 data.validity = currentTrial.validity;
                 data.correctResponse = currentTrial.correctResponse;
-                data.soa = currentTrial.soa;
+                data.isi = currentTrial.isi;
                 data.correct = data.response === currentTrial.correctResponse;
                 data.nReversals = staircase.reversals.length;
                 data.stepSize = staircase.stepSize;
-                data.currentSOA = staircase.currentSOA;
+                data.currentISI = staircase.currentISI;
                 data.currentIOR = staircase.lastIOR || 0;
                 data.reversal = false;
 
                 // Update staircase for correct trials with valid RTs
                 if (data.correct && data.rt !== null && data.rt > 100) {
                     if (currentTrial.validity === 'valid') {
-                        staircase.validRTs.push({ soa: currentTrial.soa, rt: data.rt });
+                        staircase.validRTs.push({ isi: currentTrial.isi, rt: data.rt });
                     } else {
-                        staircase.invalidRTs.push({ soa: currentTrial.soa, rt: data.rt });
+                        staircase.invalidRTs.push({ isi: currentTrial.isi, rt: data.rt });
                     }
 
                     if (shouldUpdateStaircase()) {
@@ -559,7 +562,7 @@ const mainTrialProcedure = {
                         data.currentIOR = staircase.lastIOR || 0;
                         data.nReversals = staircase.reversals.length;
                         if (reversal) {
-                            console.log(`Reversal ${staircase.reversals.length}: SOA = ${staircase.currentSOA}ms, IOR = ${staircase.lastIOR?.toFixed(1)}ms`);
+                            console.log(`Reversal ${staircase.reversals.length}: ISI = ${staircase.currentISI}ms, IOR = ${staircase.lastIOR?.toFixed(1)}ms`);
                         }
                     }
                 }
@@ -600,7 +603,7 @@ timeline.push(mainTrialProcedure);
 timeline.push({
     type: jsPsychHtmlKeyboardResponse,
     stimulus: function() {
-        const peakSOA = getPeakSOA();
+        const peakISI = getPeakISI();
         const maxIOR = getMaxIOR();
 
         return `
@@ -609,8 +612,8 @@ timeline.push({
                 <p>Total trials: ${mainTrialCount}</p>
                 <p>Reversals: ${staircase.reversals.length}</p>
                 <br>
-                <p><strong>SOA with Peak IOR:</strong></p>
-                <p style="font-size: 36px; color: #66ff66;">${peakSOA.toFixed(1)} ms</p>
+                <p><strong>ISI with Peak IOR:</strong></p>
+                <p style="font-size: 36px; color: #66ff66;">${peakISI.toFixed(1)} ms</p>
                 <p><strong>Maximum IOR magnitude:</strong></p>
                 <p style="font-size: 28px; color: #ffaa66;">${maxIOR.toFixed(1)} ms</p>
                 <br>
@@ -631,13 +634,13 @@ timeline.push({
         console.log('Main IOR trials:', mainTrials.length);
 
         // Create clean CSV with key columns for plotting
-        const headers = ['trialNum', 'soa', 'validity', 'rt', 'correct', 'response', 'cueSide', 'targetSide', 'reversal', 'nReversals', 'stepSize', 'currentIOR'];
+        const headers = ['trialNum', 'isi', 'validity', 'rt', 'correct', 'response', 'cueSide', 'targetSide', 'reversal', 'nReversals', 'stepSize', 'currentIOR'];
         let csvContent = headers.join(',') + '\n';
 
         mainTrials.forEach(trial => {
             const row = [
                 trial.trialNum,
-                trial.soa,
+                trial.isi,
                 trial.validity,
                 trial.rt !== null && trial.rt !== undefined ? trial.rt : '',
                 trial.correct,

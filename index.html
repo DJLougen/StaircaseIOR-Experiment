@@ -104,9 +104,10 @@
 // =============================================================================
 
 // --- Staircase Parameters ---
-const MIN_SOA = 50;
-const MAX_SOA = 600;
-const START_SOA = 200;
+// ISI = Inter-Stimulus Interval (gap between cue offset and target onset)
+const MIN_ISI = 50;
+const MAX_ISI = 600;
+const START_ISI = 200;
 const STEP_SIZE_INITIAL = 50;
 const STEP_SIZE_MIN = 10;
 const N_REVERSALS = 12;
@@ -120,15 +121,15 @@ const TARGET_DURATION = 1000;
 
 // --- Practice Parameters ---
 const N_PRACTICE_TRIALS = 15;
-const PRACTICE_SOAS = [50, 150, 250];
+const PRACTICE_ISIS = [50, 150, 250];
 
 // --- Staircase State ---
 let staircase = {
-    currentSOA: START_SOA,
+    currentISI: START_ISI,
     stepSize: STEP_SIZE_INITIAL,
     validRTs: [],
     invalidRTs: [],
-    soaHistory: [],
+    isiHistory: [],
     effectHistory: [],
     reversals: [],
     lastDirection: null,
@@ -142,7 +143,7 @@ let currentTrial = {
     targetSide: 'left',
     validity: 'valid',
     correctResponse: 'f',
-    soa: 200,
+    isi: 200,
     isPractice: false
 };
 
@@ -166,7 +167,7 @@ function updateStaircase() {
     const { recentValid, recentInvalid } = getRecentRTs(RT_WINDOW);
 
     if (recentValid.length < RT_WINDOW || recentInvalid.length < RT_WINDOW) {
-        return { newSOA: staircase.currentSOA, reversal: false };
+        return { newISI: staircase.currentISI, reversal: false };
     }
 
     const meanValid = recentValid.reduce((a, b) => a + b, 0) / recentValid.length;
@@ -184,7 +185,7 @@ function updateStaircase() {
     }
 
     staircase.effectHistory.push(effect);
-    staircase.soaHistory.push(staircase.currentSOA);
+    staircase.isiHistory.push(staircase.currentISI);
 
     let reversal = false;
     let newDirection = null;
@@ -193,25 +194,25 @@ function updateStaircase() {
         newDirection = 'up';
         if (staircase.lastDirection === 'down') {
             reversal = true;
-            staircase.reversals.push(staircase.currentSOA);
+            staircase.reversals.push(staircase.currentISI);
             staircase.stepSize = Math.max(STEP_SIZE_MIN, staircase.stepSize * 0.75);
         }
-        staircase.currentSOA = Math.min(MAX_SOA, staircase.currentSOA + staircase.stepSize);
+        staircase.currentISI = Math.min(MAX_ISI, staircase.currentISI + staircase.stepSize);
         staircase.consecutiveFacilitation = 0;
         staircase.lastDirection = newDirection;
     } else if (effect === 'ior' && staircase.consecutiveIOR >= 1) {
         newDirection = 'down';
         if (staircase.lastDirection === 'up') {
             reversal = true;
-            staircase.reversals.push(staircase.currentSOA);
+            staircase.reversals.push(staircase.currentISI);
             staircase.stepSize = Math.max(STEP_SIZE_MIN, staircase.stepSize * 0.75);
         }
-        staircase.currentSOA = Math.max(MIN_SOA, staircase.currentSOA - staircase.stepSize);
+        staircase.currentISI = Math.max(MIN_ISI, staircase.currentISI - staircase.stepSize);
         staircase.consecutiveIOR = 0;
         staircase.lastDirection = newDirection;
     }
 
-    return { newSOA: staircase.currentSOA, reversal };
+    return { newISI: staircase.currentISI, reversal };
 }
 
 function isStaircaseFinished() {
@@ -220,7 +221,7 @@ function isStaircaseFinished() {
 
 function getThreshold() {
     if (staircase.reversals.length < 4) {
-        return staircase.currentSOA;
+        return staircase.currentISI;
     }
     const nUse = Math.min(8, staircase.reversals.length);
     const lastReversals = staircase.reversals.slice(-nUse);
@@ -262,9 +263,9 @@ function setupNewTrial(isPractice) {
     currentTrial.correctResponse = currentTrial.targetSide === 'left' ? 'f' : 'j';
 
     if (isPractice) {
-        currentTrial.soa = PRACTICE_SOAS[Math.floor(Math.random() * PRACTICE_SOAS.length)];
+        currentTrial.isi = PRACTICE_ISIS[Math.floor(Math.random() * PRACTICE_ISIS.length)];
     } else {
-        currentTrial.soa = staircase.currentSOA;
+        currentTrial.isi = staircase.currentISI;
     }
 }
 
@@ -275,7 +276,7 @@ const jsPsych = initJsPsych({
     on_finish: function() {
         const threshold = getThreshold();
         console.log('Experiment complete!');
-        console.log('Estimated crossover SOA:', threshold.toFixed(1), 'ms');
+        console.log('Estimated crossover ISI:', threshold.toFixed(1), 'ms');
         console.log('Total reversals:', staircase.reversals.length);
     }
 });
@@ -367,7 +368,7 @@ const practiceTrialProcedure = {
             stimulus: function() { return generateTrialHTML('fixation'); },
             choices: "NO_KEYS",
             trial_duration: function() {
-                return Math.max(0, currentTrial.soa - CUE_DURATION);
+                return currentTrial.isi;
             }
         },
         // Target
@@ -385,7 +386,7 @@ const practiceTrialProcedure = {
                 data.targetSide = currentTrial.targetSide;
                 data.validity = currentTrial.validity;
                 data.correctResponse = currentTrial.correctResponse;
-                data.soa = currentTrial.soa;
+                data.isi = currentTrial.isi;
                 data.correct = data.response === currentTrial.correctResponse;
             }
         },
@@ -467,7 +468,7 @@ const mainTrialProcedure = {
             stimulus: function() { return generateTrialHTML('fixation'); },
             choices: "NO_KEYS",
             trial_duration: function() {
-                return Math.max(0, currentTrial.soa - CUE_DURATION);
+                return currentTrial.isi;
             }
         },
         // Target
@@ -486,11 +487,11 @@ const mainTrialProcedure = {
                 data.targetSide = currentTrial.targetSide;
                 data.validity = currentTrial.validity;
                 data.correctResponse = currentTrial.correctResponse;
-                data.soa = currentTrial.soa;
+                data.isi = currentTrial.isi;
                 data.correct = data.response === currentTrial.correctResponse;
                 data.nReversals = staircase.reversals.length;
                 data.stepSize = staircase.stepSize;
-                data.currentSOA = staircase.currentSOA;
+                data.currentISI = staircase.currentISI;
                 data.reversal = false;
 
                 // Update staircase for correct trials with valid RTs
@@ -506,7 +507,7 @@ const mainTrialProcedure = {
                         data.reversal = reversal;
                         data.nReversals = staircase.reversals.length;
                         if (reversal) {
-                            console.log(`Reversal ${staircase.reversals.length}: SOA = ${staircase.currentSOA}ms`);
+                            console.log(`Reversal ${staircase.reversals.length}: ISI = ${staircase.currentISI}ms`);
                         }
                     }
                 }
@@ -557,7 +558,7 @@ timeline.push({
                 <p>Reversals: ${staircase.reversals.length}</p>
                 <br>
                 <p><strong>Estimated IOR crossover point:</strong></p>
-                <p style="font-size: 36px; color: #66ff66;">${threshold.toFixed(1)} ms SOA</p>
+                <p style="font-size: 36px; color: #66ff66;">${threshold.toFixed(1)} ms ISI</p>
                 <br>
                 <p>Thank you for participating!</p>
                 <p style="color: #aaa; margin-top: 30px;">Press SPACE to finish and download data</p>
@@ -576,13 +577,13 @@ timeline.push({
         console.log('Main IOR trials:', mainTrials.length);
 
         // Create clean CSV with key columns for plotting
-        const headers = ['trialNum', 'soa', 'validity', 'rt', 'correct', 'response', 'cueSide', 'targetSide', 'reversal', 'nReversals', 'stepSize'];
+        const headers = ['trialNum', 'isi', 'validity', 'rt', 'correct', 'response', 'cueSide', 'targetSide', 'reversal', 'nReversals', 'stepSize'];
         let csvContent = headers.join(',') + '\n';
 
         mainTrials.forEach(trial => {
             const row = [
                 trial.trialNum,
-                trial.soa,
+                trial.isi,
                 trial.validity,
                 trial.rt !== null && trial.rt !== undefined ? trial.rt : '',
                 trial.correct,
