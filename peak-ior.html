@@ -602,43 +602,42 @@ timeline.push({
     },
     choices: [' '],
     on_finish: function() {
-        // Get all main trial data
-        const allData = jsPsych.data.get().filterCustom(function(trial) {
-            return trial.trial_type === 'ior-trial' && trial.practice === false;
-        });
+        // Get all trial data and filter for main (non-practice) trials
+        const allTrials = jsPsych.data.get().values();
+        const mainTrials = allTrials.filter(trial =>
+            trial.trial_type === 'ior-trial' && trial.practice === false
+        );
 
-        // Save full trial data
-        const filename = `peak_ior_${Date.now()}.csv`;
-        allData.localSave('csv', filename);
+        console.log('All trials:', allTrials.length);
+        console.log('Main IOR trials:', mainTrials.length);
 
-        // Also create a summary CSV with key columns for plotting
-        const summaryData = allData.values().map(trial => ({
-            trialNum: trial.trialNum,
-            soa: trial.soa,
-            validity: trial.validity,
-            rt: trial.rt,
-            correct: trial.correct,
-            response: trial.response,
-            cueSide: trial.cueSide,
-            targetSide: trial.targetSide,
-            reversal: trial.reversal,
-            nReversals: trial.nReversals,
-            stepSize: trial.stepSize,
-            currentIOR: trial.currentIOR
-        }));
-
-        // Convert to CSV manually for clean output
+        // Create clean CSV with key columns for plotting
         const headers = ['trialNum', 'soa', 'validity', 'rt', 'correct', 'response', 'cueSide', 'targetSide', 'reversal', 'nReversals', 'stepSize', 'currentIOR'];
         let csvContent = headers.join(',') + '\n';
-        summaryData.forEach(row => {
-            csvContent += headers.map(h => row[h]).join(',') + '\n';
+
+        mainTrials.forEach(trial => {
+            const row = [
+                trial.trialNum,
+                trial.soa,
+                trial.validity,
+                trial.rt !== null && trial.rt !== undefined ? trial.rt : '',
+                trial.correct,
+                trial.response !== null ? trial.response : '',
+                trial.cueSide,
+                trial.targetSide,
+                trial.reversal,
+                trial.nReversals,
+                trial.stepSize,
+                trial.currentIOR !== null && trial.currentIOR !== undefined ? trial.currentIOR.toFixed(1) : ''
+            ];
+            csvContent += row.join(',') + '\n';
         });
 
         const blob = new Blob([csvContent], { type: 'text/csv' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `peak_ior_clean_${Date.now()}.csv`;
+        a.download = `peak_ior_${Date.now()}.csv`;
         a.click();
     }
 });
