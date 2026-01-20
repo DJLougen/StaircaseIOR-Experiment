@@ -626,12 +626,20 @@ timeline.push({
     on_finish: function() {
         // Get all trial data and filter for main (non-practice) trials
         const allTrials = jsPsych.data.get().values();
+
+        // Debug: log all trials with their properties
+        console.log('All trials:', allTrials.length);
+        allTrials.forEach((t, i) => {
+            if (t.trial_type === 'ior-trial') {
+                console.log(`Trial ${i}: type=${t.trial_type}, practice=${t.practice}, trialNum=${t.trialNum}`);
+            }
+        });
+
         const mainTrials = allTrials.filter(trial =>
             trial.trial_type === 'ior-trial' && trial.practice === false
         );
 
-        console.log('All trials:', allTrials.length);
-        console.log('Main IOR trials:', mainTrials.length);
+        console.log('Main IOR trials found:', mainTrials.length);
 
         // Create clean CSV with key columns for plotting
         const headers = ['trialNum', 'isi', 'validity', 'rt', 'correct', 'response', 'cueSide', 'targetSide', 'reversal', 'nReversals', 'stepSize', 'currentIOR'];
@@ -639,17 +647,17 @@ timeline.push({
 
         mainTrials.forEach(trial => {
             const row = [
-                trial.trialNum,
-                trial.isi,
-                trial.validity,
+                trial.trialNum !== undefined ? trial.trialNum : '',
+                trial.isi !== undefined ? trial.isi : '',
+                trial.validity !== undefined ? trial.validity : '',
                 trial.rt !== null && trial.rt !== undefined ? trial.rt : '',
-                trial.correct,
-                trial.response !== null ? trial.response : '',
-                trial.cueSide,
-                trial.targetSide,
-                trial.reversal,
-                trial.nReversals,
-                trial.stepSize,
+                trial.correct !== undefined ? trial.correct : '',
+                trial.response !== null && trial.response !== undefined ? trial.response : '',
+                trial.cueSide !== undefined ? trial.cueSide : '',
+                trial.targetSide !== undefined ? trial.targetSide : '',
+                trial.reversal !== undefined ? trial.reversal : '',
+                trial.nReversals !== undefined ? trial.nReversals : '',
+                trial.stepSize !== undefined ? trial.stepSize : '',
                 trial.currentIOR !== null && trial.currentIOR !== undefined ? trial.currentIOR.toFixed(1) : ''
             ];
             csvContent += row.join(',') + '\n';
