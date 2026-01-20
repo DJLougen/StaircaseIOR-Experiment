@@ -425,7 +425,7 @@ const practiceTrialProcedure = {
             stimulus: function() { return generateTrialHTML('fixation'); },
             choices: "NO_KEYS",
             trial_duration: function() {
-                return currentTrial.soa;
+                return Math.max(0, currentTrial.soa - CUE_DURATION);
             }
         },
         {
@@ -519,7 +519,7 @@ const mainTrialProcedure = {
             stimulus: function() { return generateTrialHTML('fixation'); },
             choices: "NO_KEYS",
             trial_duration: function() {
-                return currentTrial.soa;
+                return Math.max(0, currentTrial.soa - CUE_DURATION);
             }
         },
         {

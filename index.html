@@ -361,13 +361,13 @@ const practiceTrialProcedure = {
             choices: "NO_KEYS",
             trial_duration: CUE_DURATION
         },
-        // ISI (interval between cue offset and target onset)
+        // ISI (gap between cue offset and target onset) - this IS the staircase value
         {
             type: jsPsychHtmlKeyboardResponse,
             stimulus: function() { return generateTrialHTML('fixation'); },
             choices: "NO_KEYS",
             trial_duration: function() {
-                return currentTrial.soa;
+                return Math.max(0, currentTrial.soa - CUE_DURATION);
             }
         },
         // Target
@@ -461,13 +461,13 @@ const mainTrialProcedure = {
             choices: "NO_KEYS",
             trial_duration: CUE_DURATION
         },
-        // ISI (interval between cue offset and target onset)
+        // ISI (gap between cue offset and target onset) - this IS the staircase value
         {
             type: jsPsychHtmlKeyboardResponse,
             stimulus: function() { return generateTrialHTML('fixation'); },
             choices: "NO_KEYS",
             trial_duration: function() {
-                return currentTrial.soa;
+                return Math.max(0, currentTrial.soa - CUE_DURATION);
             }
         },
         // Target
