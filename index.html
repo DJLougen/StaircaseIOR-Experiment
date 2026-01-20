@@ -229,6 +229,11 @@ function getThreshold() {
 
 // Generate trial stimulus HTML
 function generateTrialHTML(phase) {
+    // Blank ITI screen - no fixation, no boxes
+    if (phase === 'iti') {
+        return '<div class="trial-container"></div>';
+    }
+
     let html = '<div class="trial-container">';
     html += '<div class="fixation">+</div>';
     html += '<div class="box left-box"></div>';
@@ -401,6 +406,13 @@ const practiceTrialProcedure = {
                 const lastTrial = jsPsych.data.get().last(1).values()[0];
                 return (lastTrial.response === null || !lastTrial.correct) ? 1500 : 0;
             }
+        },
+        // ITI - blank screen between trials
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return generateTrialHTML('iti'); },
+            choices: "NO_KEYS",
+            trial_duration: 500
         }
     ],
     loop_function: function() {
@@ -517,6 +529,13 @@ const mainTrialProcedure = {
                 const lastTrial = jsPsych.data.get().last(1).values()[0];
                 return (lastTrial.response === null || !lastTrial.correct) ? 500 : 0;
             }
+        },
+        // ITI - blank screen between trials
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return generateTrialHTML('iti'); },
+            choices: "NO_KEYS",
+            trial_duration: 500
         }
     ],
     loop_function: function() {
