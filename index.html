@@ -361,13 +361,13 @@ const practiceTrialProcedure = {
             choices: "NO_KEYS",
             trial_duration: CUE_DURATION
         },
-        // ISI (SOA minus cue duration)
+        // ISI (interval between cue offset and target onset)
         {
             type: jsPsychHtmlKeyboardResponse,
             stimulus: function() { return generateTrialHTML('fixation'); },
             choices: "NO_KEYS",
             trial_duration: function() {
-                return Math.max(0, currentTrial.soa - CUE_DURATION);
+                return currentTrial.soa;
             }
         },
         // Target
@@ -412,7 +412,7 @@ const practiceTrialProcedure = {
             type: jsPsychHtmlKeyboardResponse,
             stimulus: function() { return generateTrialHTML('iti'); },
             choices: "NO_KEYS",
-            trial_duration: 500
+            trial_duration: 750
         }
     ],
     loop_function: function() {
@@ -461,13 +461,13 @@ const mainTrialProcedure = {
             choices: "NO_KEYS",
             trial_duration: CUE_DURATION
         },
-        // ISI
+        // ISI (interval between cue offset and target onset)
         {
             type: jsPsychHtmlKeyboardResponse,
             stimulus: function() { return generateTrialHTML('fixation'); },
             choices: "NO_KEYS",
             trial_duration: function() {
-                return Math.max(0, currentTrial.soa - CUE_DURATION);
+                return currentTrial.soa;
             }
         },
         // Target
@@ -535,7 +535,7 @@ const mainTrialProcedure = {
             type: jsPsychHtmlKeyboardResponse,
             stimulus: function() { return generateTrialHTML('iti'); },
             choices: "NO_KEYS",
-            trial_duration: 500
+            trial_duration: 750
         }
     ],
     loop_function: function() {

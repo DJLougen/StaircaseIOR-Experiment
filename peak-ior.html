@@ -425,7 +425,7 @@ const practiceTrialProcedure = {
             stimulus: function() { return generateTrialHTML('fixation'); },
             choices: "NO_KEYS",
             trial_duration: function() {
-                return Math.max(0, currentTrial.soa - CUE_DURATION);
+                return currentTrial.soa;
             }
         },
         {
@@ -468,7 +468,7 @@ const practiceTrialProcedure = {
             type: jsPsychHtmlKeyboardResponse,
             stimulus: function() { return generateTrialHTML('iti'); },
             choices: "NO_KEYS",
-            trial_duration: 500
+            trial_duration: 750
         }
     ],
     loop_function: function() {
@@ -519,7 +519,7 @@ const mainTrialProcedure = {
             stimulus: function() { return generateTrialHTML('fixation'); },
             choices: "NO_KEYS",
             trial_duration: function() {
-                return Math.max(0, currentTrial.soa - CUE_DURATION);
+                return currentTrial.soa;
             }
         },
         {
@@ -587,7 +587,7 @@ const mainTrialProcedure = {
             type: jsPsychHtmlKeyboardResponse,
             stimulus: function() { return generateTrialHTML('iti'); },
             choices: "NO_KEYS",
-            trial_duration: 500
+            trial_duration: 750
         }
     ],
     loop_function: function() {
