@@ -764,29 +764,39 @@ timeline.push({
     },
     choices: [' '],
     on_finish: function() {
-        const allData = jsPsych.data.get().filterCustom(function(trial) {
-            return trial.trial_type === 'saccade-trial' && trial.practice === false;
-        });
+        // Get all trial data and filter for main (non-practice) saccade trials
+        const allTrials = jsPsych.data.get().values();
+        const mainTrials = allTrials.filter(trial =>
+            trial.trial_type === 'saccade-trial' && trial.practice === false
+        );
 
-        const summaryData = allData.values().map(trial => ({
-            trialNum: trial.trialNum,
-            targetSide: trial.targetSide,
-            gap: trial.gap,
-            saccadeLatency: trial.saccadeLatency?.toFixed(1),
-            saccadeDuration: trial.saccadeDuration?.toFixed(1),
-            saccadeAccuracy: trial.saccadeAccuracy,
-            gazeLeftCenter: trial.gazeLeftCenter,
-            gazeReachedTarget: trial.gazeReachedTarget,
-            success: trial.success,
-            reversal: trial.reversal,
-            nReversals: trial.nReversals,
-            stepSize: trial.stepSize
-        }));
+        console.log('All trials:', allTrials.length);
+        console.log('Main saccade trials:', mainTrials.length);
+
+        if (mainTrials.length === 0) {
+            console.warn('No main trials found! Dumping all data for debugging.');
+            console.log(allTrials);
+        }
 
         const headers = ['trialNum', 'targetSide', 'gap', 'saccadeLatency', 'saccadeDuration', 'saccadeAccuracy', 'gazeLeftCenter', 'gazeReachedTarget', 'success', 'reversal', 'nReversals', 'stepSize'];
         let csvContent = headers.join(',') + '\n';
-        summaryData.forEach(row => {
-            csvContent += headers.map(h => row[h]).join(',') + '\n';
+
+        mainTrials.forEach(trial => {
+            const row = [
+                trial.trialNum,
+                trial.targetSide,
+                trial.gap,
+                trial.saccadeLatency !== null && trial.saccadeLatency !== undefined ? trial.saccadeLatency.toFixed(1) : '',
+                trial.saccadeDuration !== null && trial.saccadeDuration !== undefined ? trial.saccadeDuration.toFixed(1) : '',
+                trial.saccadeAccuracy,
+                trial.gazeLeftCenter,
+                trial.gazeReachedTarget,
+                trial.success,
+                trial.reversal,
+                trial.nReversals,
+                trial.stepSize
+            ];
+            csvContent += row.join(',') + '\n';
         });
 
         const blob = new Blob([csvContent], { type: 'text/csv' });
