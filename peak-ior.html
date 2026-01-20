@@ -134,6 +134,11 @@ const TARGET_DURATION = 1000;
 const N_PRACTICE_TRIALS = 15;
 const PRACTICE_ISIS = [150, 300, 450];
 
+// --- Sampling Phase Parameters ---
+// Sample 5 ISIs across the range to find good starting point
+const SAMPLING_ISIS = [100, 275, 450, 625, 800];
+const N_SAMPLING_REPS = 5;  // 5 trials per ISI (will be mixed valid/invalid)
+
 // --- Staircase State ---
 let staircase = {
     currentISI: START_ISI,
@@ -160,6 +165,70 @@ let currentTrial = {
 // --- Trial Counter ---
 let mainTrialCount = 0;
 let practiceTrialCount = 0;
+let samplingTrialCount = 0;
+
+// --- Sampling Phase State ---
+let samplingData = {
+    trials: [],  // All sampling trials: {isi, validity, rt, correct}
+    schedule: [] // Pre-generated randomized trial order
+};
+
+// Generate sampling trial schedule
+function generateSamplingSchedule() {
+    const schedule = [];
+    // For each ISI, create N_SAMPLING_REPS trials
+    // Half valid, half invalid (or as close as possible)
+    for (const isi of SAMPLING_ISIS) {
+        for (let i = 0; i < N_SAMPLING_REPS; i++) {
+            schedule.push({
+                isi: isi,
+                validity: i < Math.ceil(N_SAMPLING_REPS / 2) ? 'valid' : 'invalid'
+            });
+        }
+    }
+    // Shuffle the schedule
+    for (let i = schedule.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [schedule[i], schedule[j]] = [schedule[j], schedule[i]];
+    }
+    return schedule;
+}
+
+// Calculate IOR for each sampled ISI and find the best starting point
+function findBestStartingISI() {
+    const iorByISI = {};
+
+    // Group trials by ISI
+    for (const isi of SAMPLING_ISIS) {
+        const isiTrials = samplingData.trials.filter(t => t.isi === isi && t.correct && t.rt > 100);
+        const validRTs = isiTrials.filter(t => t.validity === 'valid').map(t => t.rt);
+        const invalidRTs = isiTrials.filter(t => t.validity === 'invalid').map(t => t.rt);
+
+        if (validRTs.length > 0 && invalidRTs.length > 0) {
+            const meanValid = validRTs.reduce((a, b) => a + b, 0) / validRTs.length;
+            const meanInvalid = invalidRTs.reduce((a, b) => a + b, 0) / invalidRTs.length;
+            // IOR = valid RT - invalid RT (positive = IOR present)
+            iorByISI[isi] = meanValid - meanInvalid;
+        } else {
+            iorByISI[isi] = 0;
+        }
+    }
+
+    console.log('Sampling phase IOR by ISI:', iorByISI);
+
+    // Find ISI with maximum IOR
+    let bestISI = START_ISI;
+    let maxIOR = -Infinity;
+    for (const [isi, ior] of Object.entries(iorByISI)) {
+        if (ior > maxIOR) {
+            maxIOR = ior;
+            bestISI = parseInt(isi);
+        }
+    }
+
+    console.log(`Best starting ISI from sampling: ${bestISI}ms (IOR = ${maxIOR.toFixed(1)}ms)`);
+    return bestISI;
+}
 
 // --- Helper Functions ---
 function getRecentRTs(n = RT_WINDOW) {
@@ -315,20 +384,27 @@ function generateTrialHTML(phase) {
 }
 
 // Setup a new trial
-function setupNewTrial(isPractice) {
+function setupNewTrial(isPractice, isSampling = false) {
     currentTrial.isPractice = isPractice;
     currentTrial.cueSide = Math.random() < 0.5 ? 'left' : 'right';
-    currentTrial.validity = Math.random() < 0.5 ? 'valid' : 'invalid';
+
+    if (isSampling) {
+        // Sampling trial - use pre-generated schedule
+        const scheduledTrial = samplingData.schedule[samplingTrialCount];
+        currentTrial.validity = scheduledTrial.validity;
+        currentTrial.isi = scheduledTrial.isi;
+    } else if (isPractice) {
+        currentTrial.validity = Math.random() < 0.5 ? 'valid' : 'invalid';
+        currentTrial.isi = PRACTICE_ISIS[Math.floor(Math.random() * PRACTICE_ISIS.length)];
+    } else {
+        currentTrial.validity = Math.random() < 0.5 ? 'valid' : 'invalid';
+        currentTrial.isi = staircase.currentISI;
+    }
+
     currentTrial.targetSide = currentTrial.validity === 'valid' ?
         currentTrial.cueSide :
         (currentTrial.cueSide === 'left' ? 'right' : 'left');
     currentTrial.correctResponse = currentTrial.targetSide === 'left' ? 'f' : 'j';
-
-    if (isPractice) {
-        currentTrial.isi = PRACTICE_ISIS[Math.floor(Math.random() * PRACTICE_ISIS.length)];
-    } else {
-        currentTrial.isi = staircase.currentISI;
-    }
 }
 
 // =============================================================================
@@ -480,18 +556,141 @@ const practiceTrialProcedure = {
 };
 timeline.push(practiceTrialProcedure);
 
-// --- Main Experiment Instructions ---
+// --- Sampling Phase Instructions ---
 timeline.push({
     type: jsPsychHtmlKeyboardResponse,
     stimulus: `
         <div class="instructions">
-            <h2>MAIN EXPERIMENT</h2>
-            <p>Practice complete! The main experiment will now begin.</p>
-            <p>The task will adapt based on your responses.</p>
-            <p>Continue until you see the completion screen.</p>
-            <p class="continue-text">Press F or J to start</p>
+            <h2>SAMPLING PHASE</h2>
+            <p>Practice complete! Now we'll run a brief sampling phase.</p>
+            <p>This helps calibrate the experiment to your responses.</p>
+            <p>You'll complete ${SAMPLING_ISIS.length * N_SAMPLING_REPS} trials.</p>
+            <p class="continue-text">Press F or J to start sampling</p>
         </div>
     `,
+    choices: ['f', 'j'],
+    on_start: function() {
+        // Generate the randomized sampling schedule
+        samplingData.schedule = generateSamplingSchedule();
+        console.log('Sampling schedule generated:', samplingData.schedule.length, 'trials');
+    }
+});
+
+// --- Sampling Trial Procedure ---
+const samplingTrialProcedure = {
+    timeline: [
+        {
+            type: jsPsychCallFunction,
+            func: function() {
+                setupNewTrial(false, true);  // not practice, is sampling
+            }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return generateTrialHTML('fixation'); },
+            choices: "NO_KEYS",
+            trial_duration: FIXATION_DURATION
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return generateTrialHTML('cue'); },
+            choices: "NO_KEYS",
+            trial_duration: CUE_DURATION
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return generateTrialHTML('fixation'); },
+            choices: "NO_KEYS",
+            trial_duration: function() {
+                return currentTrial.isi;
+            }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return generateTrialHTML('target'); },
+            choices: ['f', 'j'],
+            trial_duration: TARGET_DURATION,
+            data: {
+                trial_type: 'ior-trial',
+                practice: false,
+                sampling: true
+            },
+            on_finish: function(data) {
+                data.samplingTrialNum = samplingTrialCount + 1;
+                data.cueSide = currentTrial.cueSide;
+                data.targetSide = currentTrial.targetSide;
+                data.validity = currentTrial.validity;
+                data.correctResponse = currentTrial.correctResponse;
+                data.isi = currentTrial.isi;
+                data.correct = data.response === currentTrial.correctResponse;
+
+                // Store sampling data
+                samplingData.trials.push({
+                    isi: currentTrial.isi,
+                    validity: currentTrial.validity,
+                    rt: data.rt,
+                    correct: data.correct
+                });
+
+                samplingTrialCount++;
+            }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() {
+                const lastTrial = jsPsych.data.get().last(1).values()[0];
+                if (lastTrial.response === null) {
+                    return '<div class="feedback error">Too slow!</div>';
+                } else if (!lastTrial.correct) {
+                    return '<div class="feedback error">Incorrect!</div>';
+                }
+                return '';
+            },
+            choices: "NO_KEYS",
+            trial_duration: function() {
+                const lastTrial = jsPsych.data.get().last(1).values()[0];
+                return (lastTrial.response === null || !lastTrial.correct) ? 500 : 0;
+            }
+        },
+        // ITI - blank screen between trials
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return generateTrialHTML('iti'); },
+            choices: "NO_KEYS",
+            trial_duration: 750
+        }
+    ],
+    loop_function: function() {
+        return samplingTrialCount < samplingData.schedule.length;
+    }
+};
+timeline.push(samplingTrialProcedure);
+
+// --- Set staircase starting point based on sampling ---
+timeline.push({
+    type: jsPsychCallFunction,
+    func: function() {
+        const bestISI = findBestStartingISI();
+        staircase.currentISI = bestISI;
+        console.log('Staircase starting ISI set to:', bestISI);
+    }
+});
+
+// --- Main Experiment Instructions ---
+timeline.push({
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: function() {
+        return `
+            <div class="instructions">
+                <h2>MAIN EXPERIMENT</h2>
+                <p>Sampling complete! The adaptive staircase will now begin.</p>
+                <p>Starting ISI: ${staircase.currentISI}ms</p>
+                <p>The task will adapt based on your responses.</p>
+                <p>Continue until you see the completion screen.</p>
+                <p class="continue-text">Press F or J to start</p>
+            </div>
+        `;
+    },
     choices: ['f', 'j']
 });
 
@@ -609,7 +808,8 @@ timeline.push({
         return `
             <div class="results">
                 <h2>EXPERIMENT COMPLETE</h2>
-                <p>Total trials: ${mainTrialCount}</p>
+                <p>Sampling trials: ${samplingTrialCount}</p>
+                <p>Staircase trials: ${mainTrialCount}</p>
                 <p>Reversals: ${staircase.reversals.length}</p>
                 <br>
                 <p><strong>ISI with Peak IOR:</strong></p>
@@ -624,30 +824,33 @@ timeline.push({
     },
     choices: [' '],
     on_finish: function() {
-        // Get all trial data and filter for main (non-practice) trials
+        // Get all trial data and filter for non-practice trials (sampling + staircase)
         const allTrials = jsPsych.data.get().values();
 
         // Debug: log all trials with their properties
         console.log('All trials:', allTrials.length);
         allTrials.forEach((t, i) => {
             if (t.trial_type === 'ior-trial') {
-                console.log(`Trial ${i}: type=${t.trial_type}, practice=${t.practice}, trialNum=${t.trialNum}`);
+                console.log(`Trial ${i}: type=${t.trial_type}, practice=${t.practice}, sampling=${t.sampling}, trialNum=${t.trialNum}`);
             }
         });
 
-        const mainTrials = allTrials.filter(trial =>
+        const experimentTrials = allTrials.filter(trial =>
             trial.trial_type === 'ior-trial' && trial.practice === false
         );
 
-        console.log('Main IOR trials found:', mainTrials.length);
+        console.log('Experiment trials found:', experimentTrials.length);
 
         // Create clean CSV with key columns for plotting
-        const headers = ['trialNum', 'isi', 'validity', 'rt', 'correct', 'response', 'cueSide', 'targetSide', 'reversal', 'nReversals', 'stepSize', 'currentIOR'];
+        const headers = ['phase', 'trialNum', 'isi', 'validity', 'rt', 'correct', 'response', 'cueSide', 'targetSide', 'reversal', 'nReversals', 'stepSize', 'currentIOR'];
         let csvContent = headers.join(',') + '\n';
 
-        mainTrials.forEach(trial => {
+        experimentTrials.forEach(trial => {
+            const phase = trial.sampling === true ? 'sampling' : 'staircase';
+            const trialNum = trial.sampling === true ? trial.samplingTrialNum : trial.trialNum;
             const row = [
-                trial.trialNum !== undefined ? trial.trialNum : '',
+                phase,
+                trialNum !== undefined ? trialNum : '',
                 trial.isi !== undefined ? trial.isi : '',
                 trial.validity !== undefined ? trial.validity : '',
                 trial.rt !== null && trial.rt !== undefined ? trial.rt : '',
