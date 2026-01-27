@@ -122,6 +122,7 @@ const START_ISI = 300;    // Starting point (typical peak IOR region)
 const STEP_SIZE_INITIAL = 75;   // 75ms initial step
 const STEP_SIZE_MIN = 15;       // 15ms minimum step
 const N_REVERSALS = 14;         // Reversals before stopping
+const N_REVERSALS_BEFORE_SHRINK = 5;  // Keep step size constant for first N reversals
 const N_TRIALS_MAX = 250;       // Maximum trials
 const RT_WINDOW = 6;            // Trials to average for comparison (more for stability)
 
@@ -306,17 +307,20 @@ function updateStaircase() {
         }
         reversal = true;
         staircase.reversals.push(staircase.currentISI);
-        staircase.stepSize = Math.max(STEP_SIZE_MIN, staircase.stepSize * 0.7);
+        // Only shrink step size after N_REVERSALS_BEFORE_SHRINK (exploration phase complete)
+        if (staircase.reversals.length > N_REVERSALS_BEFORE_SHRINK) {
+            staircase.stepSize = Math.max(STEP_SIZE_MIN, staircase.stepSize * 0.7);
+        }
     } else {
         // IOR increased or stayed same, keep going
         newDirection = staircase.lastDirection || 'up';
     }
 
-    // Apply the step
+    // Apply the step (1-up 3-down: increment by 1x, decrement by 3x)
     if (newDirection === 'up') {
         staircase.currentISI = Math.min(MAX_ISI, staircase.currentISI + staircase.stepSize);
     } else {
-        staircase.currentISI = Math.max(MIN_ISI, staircase.currentISI - staircase.stepSize);
+        staircase.currentISI = Math.max(MIN_ISI, staircase.currentISI - (3 * staircase.stepSize));
     }
 
     staircase.lastDirection = newDirection;

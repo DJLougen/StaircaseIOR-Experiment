@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Model Fitting IOR Crossover Experiment</title>
+    <script src="https://unpkg.com/jspsych@7.3.4"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@1.1.3"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-button-response@1.1.3"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-preload@1.1.3"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-fullscreen@1.2.1"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-call-function@1.1.3"></script>
+    <link href="https://unpkg.com/jspsych@7.3.4/css/jspsych.css" rel="stylesheet" type="text/css" />
+    <style>
+        body {
+            background-color: black;
+        }
+        .jspsych-content {
+            max-width: 100%;
+        }
+        .jspsych-content-wrapper {
+            background-color: black;
+        }
+        .trial-container {
+            position: relative;
+            width: 800px;
+            height: 400px;
+            margin: 0 auto;
+            background-color: black;
+        }
+        .fixation {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 48px;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        .box {
+            position: absolute;
+            width: 80px;
+            height: 80px;
+            border: 3px solid white;
+            top: 50%;
+            transform: translateY(-50%);
+            background-color: rgba(0, 0, 0, 0.5);
+            box-sizing: border-box;
+        }
+        .left-box {
+            left: 150px;
+        }
+        .right-box {
+            right: 150px;
+        }
+        .cue, .target {
+            position: absolute;
+            width: 74px;
+            height: 74px;
+            background-color: white;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+        .cue-left, .target-left {
+            left: 153px;
+        }
+        .cue-right, .target-right {
+            right: 153px;
+        }
+        .instructions {
+            color: white;
+            font-size: 20px;
+            line-height: 1.6;
+            max-width: 700px;
+            margin: 0 auto;
+            text-align: left;
+        }
+        .instructions h2 {
+            text-align: center;
+        }
+        .continue-text {
+            text-align: center;
+            margin-top: 30px;
+            color: #aaa;
+        }
+        .feedback {
+            color: white;
+            font-size: 32px;
+            text-align: center;
+        }
+        .feedback.error {
+            color: #ff6666;
+        }
+        .results {
+            color: white;
+            font-size: 24px;
+            line-height: 1.8;
+            text-align: center;
+        }
+    </style>
+</head>
+<body></body>
+<script>
+// =============================================================================
+// MODEL FITTING IOR CROSSOVER EXPERIMENT - jsPsych Version
+// =============================================================================
+// Real-time parametric model fitting approach.
+//
+// Model: IOR_effect = slope * (ISI - crossover)
+// At crossover, IOR_effect = 0 (valid RT = invalid RT)
+// Below crossover: facilitation (negative IOR)
+// Above crossover: IOR (positive)
+//
+// Strategy:
+// 1. Sample ISIs across the range to build up data
+// 2. Fit linear regression to IOR vs ISI
+// 3. Crossover = x-intercept = -intercept/slope
+// 4. Adaptively sample near current estimate to refine
+//
+// Advantages:
+// - Uses ALL data (not just recent trials)
+// - Provides confidence intervals via regression SE
+// - Can assess model fit (R²)
+// =============================================================================
+
+// --- Parameters ---
+const MIN_ISI = 50;
+const MAX_ISI = 600;
+
+// Sampling ISIs for initial exploration
+const SAMPLING_ISIS = [50, 125, 200, 275, 350, 425, 500, 575];
+const N_SAMPLES_PER_ISI = 3;  // 3 valid + 3 invalid per ISI in sampling
+
+// Adaptive phase
+const N_ADAPTIVE_OBSERVATIONS = 20;  // Additional observations near estimate
+const ADAPTIVE_JITTER = 75;          // ±75ms around current estimate
+
+// Stopping criteria
+const MIN_OBSERVATIONS = 15;
+const MAX_OBSERVATIONS = 50;
+const SE_THRESHOLD = 30;  // Stop if SE of crossover < 30ms
+
+// --- Timing Parameters ---
+const FIXATION_DURATION = 750;
+const CUE_DURATION = 50;
+const TARGET_DURATION = 1000;
+
+// --- RT Collection ---
+const RT_WINDOW = 3;  // 3 valid + 3 invalid per observation
+
+// =============================================================================
+// MODEL FITTING IMPLEMENTATION
+// =============================================================================
+
+let model = {
+    // All observations: {isi, iorEffect}
+    observations: [],
+
+    // Current RT collection
+    validRTs: [],
+    invalidRTs: [],
+    currentISI: 200,
+
+    // Sampling phase tracking
+    samplingIndex: 0,
+    inSamplingPhase: true,
+    samplingQueue: [],
+
+    // Regression results
+    slope: null,
+    intercept: null,
+    crossover: null,
+    crossoverSE: null,
+    rSquared: null,
+
+    nObservations: 0
+};
+
+// Initialize sampling queue (randomized)
+function initializeModel() {
+    // Create sampling queue with multiple reps per ISI
+    model.samplingQueue = [];
+    for (let i = 0; i < N_SAMPLES_PER_ISI; i++) {
+        for (const isi of SAMPLING_ISIS) {
+            model.samplingQueue.push(isi);
+        }
+    }
+    // Shuffle
+    for (let i = model.samplingQueue.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [model.samplingQueue[i], model.samplingQueue[j]] = [model.samplingQueue[j], model.samplingQueue[i]];
+    }
+
+    model.currentISI = model.samplingQueue[0];
+}
+
+// Linear regression: y = slope * x + intercept
+// Returns {slope, intercept, slopeError, interceptError, rSquared}
+function linearRegression(data) {
+    const n = data.length;
+    if (n < 3) return null;
+
+    let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
+
+    for (const point of data) {
+        sumX += point.isi;
+        sumY += point.iorEffect;
+        sumXY += point.isi * point.iorEffect;
+        sumX2 += point.isi * point.isi;
+        sumY2 += point.iorEffect * point.iorEffect;
+    }
+
+    const meanX = sumX / n;
+    const meanY = sumY / n;
+
+    const ssXX = sumX2 - n * meanX * meanX;
+    const ssYY = sumY2 - n * meanY * meanY;
+    const ssXY = sumXY - n * meanX * meanY;
+
+    if (ssXX === 0) return null;
+
+    const slope = ssXY / ssXX;
+    const intercept = meanY - slope * meanX;
+
+    // R-squared
+    const ssRes = ssYY - slope * ssXY;
+    const rSquared = 1 - ssRes / ssYY;
+
+    // Standard errors
+    const mse = ssRes / (n - 2);
+    const slopeError = Math.sqrt(mse / ssXX);
+    const interceptError = Math.sqrt(mse * (1/n + meanX*meanX/ssXX));
+
+    return { slope, intercept, slopeError, interceptError, rSquared, n };
+}
+
+// Calculate crossover and its SE using delta method
+function calculateCrossover(regression) {
+    if (!regression || regression.slope === 0) return null;
+
+    // Crossover = -intercept / slope (where y = 0)
+    const crossover = -regression.intercept / regression.slope;
+
+    // SE of ratio using delta method: SE(a/b) ≈ |a/b| * sqrt((SE_a/a)² + (SE_b/b)²)
+    // For -intercept/slope:
+    const seRatio = Math.abs(crossover) * Math.sqrt(
+        Math.pow(regression.interceptError / regression.intercept, 2) +
+        Math.pow(regression.slopeError / regression.slope, 2)
+    );
+
+    return { crossover, se: seRatio };
+}
+
+// Fit model to all data
+function fitModel() {
+    if (model.observations.length < 3) return;
+
+    const regression = linearRegression(model.observations);
+    if (!regression) return;
+
+    model.slope = regression.slope;
+    model.intercept = regression.intercept;
+    model.rSquared = regression.rSquared;
+
+    const crossoverResult = calculateCrossover(regression);
+    if (crossoverResult) {
+        model.crossover = crossoverResult.crossover;
+        model.crossoverSE = crossoverResult.se;
+    }
+
+    console.log(`Model fit (n=${model.observations.length}): ` +
+                `crossover=${model.crossover?.toFixed(1)}ms (SE=${model.crossoverSE?.toFixed(1)}), ` +
+                `R²=${model.rSquared?.toFixed(3)}, slope=${model.slope?.toFixed(4)}`);
+}
+
+// Select next ISI
+function selectNextISI() {
+    // During sampling phase, use queue
+    if (model.inSamplingPhase) {
+        model.samplingIndex++;
+        if (model.samplingIndex < model.samplingQueue.length) {
+            return model.samplingQueue[model.samplingIndex];
+        } else {
+            model.inSamplingPhase = false;
+        }
+    }
+
+    // Adaptive phase: sample near current crossover estimate
+    if (model.crossover !== null) {
+        const jitter = (Math.random() - 0.5) * 2 * ADAPTIVE_JITTER;
+        let nextISI = Math.round(model.crossover + jitter);
+        nextISI = Math.max(MIN_ISI, Math.min(MAX_ISI, nextISI));
+        return nextISI;
+    }
+
+    // Fallback: random ISI
+    return MIN_ISI + Math.random() * (MAX_ISI - MIN_ISI);
+}
+
+// Check stopping criteria
+function isModelFinished() {
+    if (model.nObservations < MIN_OBSERVATIONS) return false;
+    if (model.nObservations >= MAX_OBSERVATIONS) return true;
+
+    // Stop if crossover SE is small enough
+    if (model.crossoverSE !== null && model.crossoverSE < SE_THRESHOLD) {
+        return true;
+    }
+
+    return false;
+}
+
+// Check if we have enough RTs
+function hasEnoughRTs() {
+    return model.validRTs.length >= RT_WINDOW && model.invalidRTs.length >= RT_WINDOW;
+}
+
+// Make observation
+function makeObservation() {
+    const meanValid = model.validRTs.slice(-RT_WINDOW).reduce((a, b) => a + b, 0) / RT_WINDOW;
+    const meanInvalid = model.invalidRTs.slice(-RT_WINDOW).reduce((a, b) => a + b, 0) / RT_WINDOW;
+
+    // IOR effect = valid - invalid (positive = IOR, negative = facilitation)
+    const iorEffect = meanValid - meanInvalid;
+
+    model.observations.push({
+        isi: model.currentISI,
+        iorEffect: iorEffect
+    });
+
+    model.nObservations++;
+
+    // Clear RT buffers
+    model.validRTs = [];
+    model.invalidRTs = [];
+
+    // Refit model
+    fitModel();
+
+    // Select next ISI
+    model.currentISI = selectNextISI();
+
+    return iorEffect;
+}
+
+// Initialize
+initializeModel();
+
+// =============================================================================
+// TRIAL MANAGEMENT
+// =============================================================================
+
+let currentTrial = {
+    cueSide: 'left',
+    targetSide: 'left',
+    validity: 'valid',
+    correctResponse: 'f',
+    isi: 200,
+    isPractice: false
+};
+
+let mainTrialCount = 0;
+
+function generateTrialHTML(phase) {
+    if (phase === 'iti') {
+        return '<div class="trial-container"></div>';
+    }
+
+    let html = '<div class="trial-container">';
+    html += '<div class="fixation">+</div>';
+    html += '<div class="box left-box"></div>';
+    html += '<div class="box right-box"></div>';
+
+    if (phase === 'cue') {
+        html += `<div class="cue cue-${currentTrial.cueSide}"></div>`;
+    }
+
+    if (phase === 'target') {
+        html += `<div class="target target-${currentTrial.targetSide}"></div>`;
+    }
+
+    html += '</div>';
+    return html;
+}
+
+function setupNewTrial() {
+    currentTrial.cueSide = Math.random() < 0.5 ? 'left' : 'right';
+    currentTrial.validity = Math.random() < 0.5 ? 'valid' : 'invalid';
+    currentTrial.targetSide = currentTrial.validity === 'valid' ?
+        currentTrial.cueSide :
+        (currentTrial.cueSide === 'left' ? 'right' : 'left');
+    currentTrial.correctResponse = currentTrial.targetSide === 'left' ? 'f' : 'j';
+    currentTrial.isi = model.currentISI;
+}
+
+// =============================================================================
+// INITIALIZE JSPSYCH
+// =============================================================================
+const jsPsych = initJsPsych({
+    on_finish: function() {
+        console.log('Model fitting complete!');
+        console.log('Estimated crossover:', model.crossover?.toFixed(1), 'ms');
+        console.log('SE:', model.crossoverSE?.toFixed(1), 'ms');
+        console.log('R²:', model.rSquared?.toFixed(3));
+    }
+});
+
+// =============================================================================
+// EXPERIMENT TIMELINE
+// =============================================================================
+let timeline = [];
+
+timeline.push({
+    type: jsPsychFullscreen,
+    fullscreen_mode: true,
+    message: '<p style="color: white; font-size: 20px;">The experiment will switch to fullscreen mode.<br><br>Click the button below to continue.</p>',
+    button_label: 'Enter Fullscreen'
+});
+
+timeline.push({
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: `
+        <div class="instructions">
+            <h2>MODEL FITTING IOR CROSSOVER EXPERIMENT</h2>
+            <p>Focus your eyes on the <strong>plus sign (+)</strong> at all times.</p>
+            <p>Two white squares will appear one after the other:</p>
+            <ul>
+                <li>The <strong>first square</strong> is the cue - <em>ignore it</em></li>
+                <li>The <strong>second square</strong> is the target - <em>respond to it</em></li>
+            </ul>
+            <p><strong>Your task:</strong></p>
+            <ul>
+                <li>Press <strong>F</strong> if the target appears in the <strong>LEFT</strong> box</li>
+                <li>Press <strong>J</strong> if the target appears in the <strong>RIGHT</strong> box</li>
+            </ul>
+            <p>Respond as <strong>QUICKLY</strong> and <strong>ACCURATELY</strong> as possible.</p>
+            <p class="continue-text">Press SPACE to continue</p>
+        </div>
+    `,
+    choices: [' ']
+});
+
+timeline.push({
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: `
+        <div class="instructions">
+            <h2>MAIN EXPERIMENT</h2>
+            <p>This experiment uses real-time model fitting.</p>
+            <p>It samples ISIs across the range, then refines near the crossover point.</p>
+            <p class="continue-text">Press F or J to start</p>
+        </div>
+    `,
+    choices: ['f', 'j']
+});
+
+const mainTrialProcedure = {
+    timeline: [
+        {
+            type: jsPsychCallFunction,
+            func: function() {
+                setupNewTrial();
+                mainTrialCount++;
+            }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return generateTrialHTML('fixation'); },
+            choices: "NO_KEYS",
+            trial_duration: FIXATION_DURATION
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return generateTrialHTML('cue'); },
+            choices: "NO_KEYS",
+            trial_duration: CUE_DURATION
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return generateTrialHTML('fixation'); },
+            choices: "NO_KEYS",
+            trial_duration: function() { return currentTrial.isi; }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return generateTrialHTML('target'); },
+            choices: ['f', 'j'],
+            trial_duration: TARGET_DURATION,
+            data: { trial_type: 'ior-trial', practice: false },
+            on_finish: function(data) {
+                data.trialNum = mainTrialCount;
+                data.cueSide = currentTrial.cueSide;
+                data.targetSide = currentTrial.targetSide;
+                data.validity = currentTrial.validity;
+                data.correctResponse = currentTrial.correctResponse;
+                data.isi = currentTrial.isi;
+                data.correct = data.response === currentTrial.correctResponse;
+                data.nObservations = model.nObservations;
+                data.crossover = model.crossover;
+                data.crossoverSE = model.crossoverSE;
+                data.rSquared = model.rSquared;
+                data.phase = model.inSamplingPhase ? 'sampling' : 'adaptive';
+                data.madeObservation = false;
+
+                if (data.correct && data.rt !== null && data.rt > 100) {
+                    if (currentTrial.validity === 'valid') {
+                        model.validRTs.push(data.rt);
+                    } else {
+                        model.invalidRTs.push(data.rt);
+                    }
+
+                    if (hasEnoughRTs()) {
+                        const iorEffect = makeObservation();
+                        data.madeObservation = true;
+                        data.iorEffect = iorEffect;
+                        data.nObservations = model.nObservations;
+                        data.crossover = model.crossover;
+                        data.crossoverSE = model.crossoverSE;
+                        data.rSquared = model.rSquared;
+                    }
+                }
+            }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() {
+                const lastTrial = jsPsych.data.get().last(1).values()[0];
+                if (lastTrial.response === null) {
+                    return '<div class="feedback error">Too slow!</div>';
+                } else if (!lastTrial.correct) {
+                    return '<div class="feedback error">Incorrect!</div>';
+                }
+                return '';
+            },
+            choices: "NO_KEYS",
+            trial_duration: function() {
+                const lastTrial = jsPsych.data.get().last(1).values()[0];
+                return (lastTrial.response === null || !lastTrial.correct) ? 500 : 0;
+            }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return generateTrialHTML('iti'); },
+            choices: "NO_KEYS",
+            trial_duration: 750
+        }
+    ],
+    loop_function: function() {
+        return !isModelFinished() && mainTrialCount < MAX_OBSERVATIONS * 15;
+    }
+};
+timeline.push(mainTrialProcedure);
+
+timeline.push({
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: function() {
+        const crossover = model.crossover;
+        const se = model.crossoverSE;
+        const r2 = model.rSquared;
+        const slope = model.slope;
+
+        // Determine if model fit is good
+        let fitQuality = 'Good';
+        let fitColor = '#66ff66';
+        if (r2 < 0.1) {
+            fitQuality = 'Poor (noisy data or non-linear relationship)';
+            fitColor = '#ff6666';
+        } else if (r2 < 0.3) {
+            fitQuality = 'Moderate';
+            fitColor = '#ffaa66';
+        }
+
+        return `
+            <div class="results">
+                <h2>EXPERIMENT COMPLETE</h2>
+                <p>Total trials: ${mainTrialCount}</p>
+                <p>Model observations: ${model.nObservations}</p>
+                <br>
+                <p><strong>Estimated IOR crossover point:</strong></p>
+                <p style="font-size: 36px; color: #66ff66;">${crossover?.toFixed(1) || 'N/A'} ms ISI</p>
+                <p style="color: #aaa;">95% CI: ${crossover ? (crossover - 2*se).toFixed(0) : 'N/A'} - ${crossover ? (crossover + 2*se).toFixed(0) : 'N/A'} ms</p>
+                <p style="color: #888;">SE: ${se?.toFixed(1) || 'N/A'} ms</p>
+                <br>
+                <p><strong>Model fit:</strong></p>
+                <p style="color: ${fitColor};">R² = ${r2?.toFixed(3) || 'N/A'} (${fitQuality})</p>
+                <p style="color: #888;">Slope: ${slope?.toFixed(4) || 'N/A'} ms/ms</p>
+                <br>
+                <p>Thank you for participating!</p>
+                <p style="color: #aaa; margin-top: 30px;">Press SPACE to finish and download data</p>
+            </div>
+        `;
+    },
+    choices: [' '],
+    on_finish: function() {
+        const allTrials = jsPsych.data.get().values();
+        const mainTrials = allTrials.filter(trial =>
+            trial.trial_type === 'ior-trial' && trial.practice === false
+        );
+
+        const headers = ['trialNum', 'isi', 'validity', 'rt', 'correct', 'response',
+                        'cueSide', 'targetSide', 'phase', 'madeObservation', 'iorEffect',
+                        'nObservations', 'crossover', 'crossoverSE', 'rSquared'];
+        let csvContent = headers.join(',') + '\n';
+
+        mainTrials.forEach(trial => {
+            const row = [
+                trial.trialNum !== undefined ? trial.trialNum : '',
+                trial.isi !== undefined ? trial.isi : '',
+                trial.validity !== undefined ? trial.validity : '',
+                trial.rt !== null && trial.rt !== undefined ? trial.rt : '',
+                trial.correct !== undefined ? trial.correct : '',
+                trial.response !== null && trial.response !== undefined ? trial.response : '',
+                trial.cueSide !== undefined ? trial.cueSide : '',
+                trial.targetSide !== undefined ? trial.targetSide : '',
+                trial.phase !== undefined ? trial.phase : '',
+                trial.madeObservation !== undefined ? trial.madeObservation : '',
+                trial.iorEffect !== undefined ? trial.iorEffect.toFixed(2) : '',
+                trial.nObservations !== undefined ? trial.nObservations : '',
+                trial.crossover !== undefined && trial.crossover !== null ? trial.crossover.toFixed(2) : '',
+                trial.crossoverSE !== undefined && trial.crossoverSE !== null ? trial.crossoverSE.toFixed(2) : '',
+                trial.rSquared !== undefined && trial.rSquared !== null ? trial.rSquared.toFixed(4) : ''
+            ];
+            csvContent += row.join(',') + '\n';
+        });
+
+        const blob = new Blob([csvContent], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `modelfit_crossover_ior_${Date.now()}.csv`;
+        a.click();
+    }
+});
+
+timeline.push({
+    type: jsPsychFullscreen,
+    fullscreen_mode: false
+});
+
+jsPsych.run(timeline);
+</script>
+</html>
