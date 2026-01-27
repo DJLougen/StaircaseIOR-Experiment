@@ -103,6 +103,15 @@
 // STAIRCASE IOR EXPERIMENT - jsPsych Version
 // =============================================================================
 
+// --- Prolific Integration ---
+const COMPLETION_CODE = 'C1X7K9M2';  // Your Prolific completion code
+
+// Extract Prolific URL parameters
+const urlParams = new URLSearchParams(window.location.search);
+const PROLIFIC_PID = urlParams.get('PROLIFIC_PID') || 'unknown';
+const STUDY_ID = urlParams.get('STUDY_ID') || 'unknown';
+const SESSION_ID = urlParams.get('SESSION_ID') || 'unknown';
+
 // --- Staircase Parameters ---
 // ISI = Inter-Stimulus Interval (gap between cue offset and target onset)
 const MIN_ISI = 50;
@@ -113,7 +122,7 @@ const STEP_SIZE_MIN = 10;
 const N_REVERSALS = 12;
 const N_REVERSALS_BEFORE_SHRINK = 5;  // Keep step size constant for first N reversals
 const N_TRIALS_MAX = 200;
-const RT_WINDOW = 5;  // 5 trials per mean for valid/invalid comparison
+const RT_WINDOW = 5;
 
 // --- Timing Parameters (in ms) ---
 const FIXATION_DURATION = 750;
@@ -121,7 +130,7 @@ const CUE_DURATION = 50;
 const TARGET_DURATION = 1000;
 
 // --- Practice Parameters ---
-const N_PRACTICE_TRIALS = 0;  // Disabled for testing
+const N_PRACTICE_TRIALS = 10;
 const PRACTICE_ISIS = [50, 150, 250];
 
 // --- Staircase State ---
@@ -386,7 +395,7 @@ const practiceTrialProcedure = {
             choices: ['f', 'j'],
             trial_duration: TARGET_DURATION,
             data: {
-                trial_type: 'ior-trial',
+                task: 'ior-trial',
                 practice: true
             },
             on_finish: function(data) {
@@ -486,7 +495,7 @@ const mainTrialProcedure = {
             choices: ['f', 'j'],
             trial_duration: TARGET_DURATION,
             data: {
-                trial_type: 'ior-trial',
+                task: 'ior-trial',
                 practice: false
             },
             on_finish: function(data) {
@@ -565,60 +574,69 @@ timeline.push({
                 <p>Total trials: ${mainTrialCount}</p>
                 <p>Reversals: ${staircase.reversals.length}</p>
                 <br>
-                <p><strong>Estimated IOR crossover point:</strong></p>
-                <p style="font-size: 36px; color: #66ff66;">${threshold.toFixed(1)} ms ISI</p>
-                <br>
                 <p>Thank you for participating!</p>
-                <p style="color: #aaa; margin-top: 30px;">Press SPACE to finish and download data</p>
+                <br>
+                <p><strong>Your completion code:</strong></p>
+                <p style="font-size: 36px; color: #66ff66; font-family: monospace;">${COMPLETION_CODE}</p>
+                <br>
+                <p style="color: #aaa;">Please copy this code and paste it into Prolific to confirm your participation.</p>
+                <p style="color: #aaa; margin-top: 30px;">Press SPACE to download your data and finish</p>
             </div>
         `;
     },
     choices: [' '],
     on_finish: function() {
+        const threshold = getThreshold();
+
         // Get all trial data and filter for main (non-practice) trials
         const allTrials = jsPsych.data.get().values();
-
-        // Debug: log all trials with their properties
-        console.log('All trials:', allTrials.length);
-        allTrials.forEach((t, i) => {
-            if (t.trial_type === 'ior-trial') {
-                console.log(`Trial ${i}: type=${t.trial_type}, practice=${t.practice}, trialNum=${t.trialNum}`);
-            }
-        });
-
         const mainTrials = allTrials.filter(trial =>
-            trial.trial_type === 'ior-trial' && trial.practice === false
+            trial.task === 'ior-trial' && trial.practice === false
         );
 
-        console.log('Main IOR trials found:', mainTrials.length);
-
-        // Create clean CSV with key columns for plotting
-        const headers = ['trialNum', 'isi', 'validity', 'rt', 'correct', 'response', 'cueSide', 'targetSide', 'reversal', 'nReversals', 'stepSize'];
+        // Create clean CSV with key columns
+        const headers = [
+            'participant_id', 'study_id', 'session_id',
+            'trial_num', 'isi', 'validity', 'rt', 'correct', 'response',
+            'cue_side', 'target_side', 'reversal', 'n_reversals', 'step_size',
+            'threshold_estimate'
+        ];
         let csvContent = headers.join(',') + '\n';
 
         mainTrials.forEach(trial => {
             const row = [
+                PROLIFIC_PID,
+                STUDY_ID,
+                SESSION_ID,
                 trial.trialNum !== undefined ? trial.trialNum : '',
                 trial.isi !== undefined ? trial.isi : '',
                 trial.validity !== undefined ? trial.validity : '',
-                trial.rt !== null && trial.rt !== undefined ? trial.rt : '',
+                trial.rt !== null && trial.rt !== undefined ? Math.round(trial.rt) : '',
                 trial.correct !== undefined ? trial.correct : '',
                 trial.response !== null && trial.response !== undefined ? trial.response : '',
                 trial.cueSide !== undefined ? trial.cueSide : '',
                 trial.targetSide !== undefined ? trial.targetSide : '',
                 trial.reversal !== undefined ? trial.reversal : '',
                 trial.nReversals !== undefined ? trial.nReversals : '',
-                trial.stepSize !== undefined ? trial.stepSize : ''
+                trial.stepSize !== undefined ? Math.round(trial.stepSize) : '',
+                threshold.toFixed(1)
             ];
             csvContent += row.join(',') + '\n';
         });
 
+        // Download CSV
         const blob = new Blob([csvContent], { type: 'text/csv' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `crossover_ior_${Date.now()}.csv`;
+        a.download = `crossover_ior_${PROLIFIC_PID}_${Date.now()}.csv`;
         a.click();
+
+        console.log('Experiment complete!');
+        console.log('Participant:', PROLIFIC_PID);
+        console.log('Threshold:', threshold.toFixed(1), 'ms');
+        console.log('Trials:', mainTrials.length);
+        console.log('Reversals:', staircase.reversals.length);
     }
 });
 
