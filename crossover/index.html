@@ -8,6 +8,7 @@
     <script src="https://unpkg.com/@jspsych/plugin-preload@1.1.3"></script>
     <script src="https://unpkg.com/@jspsych/plugin-fullscreen@1.2.1"></script>
     <script src="https://unpkg.com/@jspsych/plugin-call-function@1.1.3"></script>
+    <script src="https://unpkg.com/@jspsych-contrib/plugin-pipe@0.3"></script>
     <link href="https://unpkg.com/jspsych@7.3.4/css/jspsych.css" rel="stylesheet" type="text/css" />
     <style>
         body {
@@ -105,12 +106,16 @@
 
 // --- Prolific Integration ---
 const COMPLETION_CODE = 'C1X7K9M2';  // Your Prolific completion code
+const PROLIFIC_REDIRECT_URL = `https://app.prolific.com/submissions/complete?cc=${COMPLETION_CODE}`;
 
 // Extract Prolific URL parameters
 const urlParams = new URLSearchParams(window.location.search);
 const PROLIFIC_PID = urlParams.get('PROLIFIC_PID') || 'unknown';
 const STUDY_ID = urlParams.get('STUDY_ID') || 'unknown';
 const SESSION_ID = urlParams.get('SESSION_ID') || 'unknown';
+
+// --- Timeout Tracking ---
+let consecutiveTimeouts = 0;
 
 // --- Staircase Parameters ---
 // ISI = Inter-Stimulus Interval (gap between cue offset and target onset)
@@ -511,6 +516,13 @@ const mainTrialProcedure = {
                 data.currentISI = staircase.currentISI;
                 data.reversal = false;
 
+                // Track consecutive timeouts
+                if (data.response === null) {
+                    consecutiveTimeouts++;
+                } else {
+                    consecutiveTimeouts = 0;
+                }
+
                 // Update staircase for correct trials with valid RTs
                 if (data.correct && data.rt !== null && data.rt > 100) {
                     if (currentTrial.validity === 'valid') {
@@ -548,6 +560,30 @@ const mainTrialProcedure = {
                 return (lastTrial.response === null || !lastTrial.correct) ? 500 : 0;
             }
         },
+        // Timeout pause - appears after 2 consecutive timeouts
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: `
+                <div class="instructions">
+                    <h2>PLEASE TAKE A MOMENT</h2>
+                    <p>It looks like you may have lost focus.</p>
+                    <p>Remember:</p>
+                    <ul>
+                        <li>Keep your eyes on the <strong>+</strong> sign at all times</li>
+                        <li>Press <strong>F</strong> for LEFT, <strong>J</strong> for RIGHT</li>
+                        <li>Respond as quickly and accurately as possible</li>
+                    </ul>
+                    <p class="continue-text">Press F or J when you are ready to continue</p>
+                </div>
+            `,
+            choices: ['f', 'j'],
+            conditional_function: function() {
+                return consecutiveTimeouts >= 2;
+            },
+            on_finish: function() {
+                consecutiveTimeouts = 0;
+            }
+        },
         // ITI - blank screen between trials
         {
             type: jsPsychHtmlKeyboardResponse,
@@ -566,77 +602,26 @@ timeline.push(mainTrialProcedure);
 timeline.push({
     type: jsPsychHtmlKeyboardResponse,
     stimulus: function() {
-        const threshold = getThreshold();
-
         return `
             <div class="results">
                 <h2>EXPERIMENT COMPLETE</h2>
-                <p>Total trials: ${mainTrialCount}</p>
-                <p>Reversals: ${staircase.reversals.length}</p>
-                <br>
                 <p>Thank you for participating!</p>
+                <br>
+                <p>Your data is being saved...</p>
+                <p>You will be redirected to Prolific automatically in a few seconds.</p>
                 <br>
                 <p><strong>Your completion code:</strong></p>
                 <p style="font-size: 36px; color: #66ff66; font-family: monospace;">${COMPLETION_CODE}</p>
                 <br>
-                <p style="color: #aaa;">Please copy this code and paste it into Prolific to confirm your participation.</p>
-                <p style="color: #aaa; margin-top: 30px;">Press SPACE to download your data and finish</p>
+                <p style="color: #aaa;">If you are not redirected automatically, <a href="${PROLIFIC_REDIRECT_URL}" style="color: #66bbff;">click here</a>.</p>
             </div>
         `;
     },
-    choices: [' '],
+    choices: "NO_KEYS",
+    trial_duration: 5000,
     on_finish: function() {
-        const threshold = getThreshold();
-
-        // Get all trial data and filter for main (non-practice) trials
-        const allTrials = jsPsych.data.get().values();
-        const mainTrials = allTrials.filter(trial =>
-            trial.task === 'ior-trial' && trial.practice === false
-        );
-
-        // Create clean CSV with key columns
-        const headers = [
-            'participant_id', 'study_id', 'session_id',
-            'trial_num', 'isi', 'validity', 'rt', 'correct', 'response',
-            'cue_side', 'target_side', 'reversal', 'n_reversals', 'step_size',
-            'threshold_estimate'
-        ];
-        let csvContent = headers.join(',') + '\n';
-
-        mainTrials.forEach(trial => {
-            const row = [
-                PROLIFIC_PID,
-                STUDY_ID,
-                SESSION_ID,
-                trial.trialNum !== undefined ? trial.trialNum : '',
-                trial.isi !== undefined ? trial.isi : '',
-                trial.validity !== undefined ? trial.validity : '',
-                trial.rt !== null && trial.rt !== undefined ? Math.round(trial.rt) : '',
-                trial.correct !== undefined ? trial.correct : '',
-                trial.response !== null && trial.response !== undefined ? trial.response : '',
-                trial.cueSide !== undefined ? trial.cueSide : '',
-                trial.targetSide !== undefined ? trial.targetSide : '',
-                trial.reversal !== undefined ? trial.reversal : '',
-                trial.nReversals !== undefined ? trial.nReversals : '',
-                trial.stepSize !== undefined ? Math.round(trial.stepSize) : '',
-                threshold.toFixed(1)
-            ];
-            csvContent += row.join(',') + '\n';
-        });
-
-        // Download CSV
-        const blob = new Blob([csvContent], { type: 'text/csv' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `crossover_ior_${PROLIFIC_PID}_${Date.now()}.csv`;
-        a.click();
-
-        console.log('Experiment complete!');
-        console.log('Participant:', PROLIFIC_PID);
-        console.log('Threshold:', threshold.toFixed(1), 'ms');
-        console.log('Trials:', mainTrials.length);
-        console.log('Reversals:', staircase.reversals.length);
+        // Redirect to Prolific
+        window.location.href = PROLIFIC_REDIRECT_URL;
     }
 });
 
