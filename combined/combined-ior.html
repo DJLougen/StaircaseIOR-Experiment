@@ -1,0 +1,1218 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Combined IOR Experiment</title>
+    <script src="https://unpkg.com/jspsych@7.3.4"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@1.1.3"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-button-response@1.1.3"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-preload@1.1.3"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-fullscreen@1.2.1"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-call-function@1.1.3"></script>
+    <link href="https://unpkg.com/jspsych@7.3.4/css/jspsych.css" rel="stylesheet" type="text/css" />
+    <style>
+        body {
+            background-color: black;
+        }
+        .jspsych-content {
+            max-width: 100%;
+        }
+        .jspsych-content-wrapper {
+            background-color: black;
+        }
+        .trial-container {
+            position: relative;
+            width: 800px;
+            height: 400px;
+            margin: 0 auto;
+            background-color: black;
+        }
+        .fixation {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 48px;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        .box {
+            position: absolute;
+            width: 80px;
+            height: 80px;
+            border: 3px solid white;
+            top: 50%;
+            transform: translateY(-50%);
+            background-color: rgba(0, 0, 0, 0.5);
+            box-sizing: border-box;
+        }
+        .left-box {
+            left: 150px;
+        }
+        .right-box {
+            right: 150px;
+        }
+        .cue, .target {
+            position: absolute;
+            width: 74px;
+            height: 74px;
+            background-color: white;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+        .cue-left, .target-left {
+            left: 153px;
+        }
+        .cue-right, .target-right {
+            right: 153px;
+        }
+        .instructions {
+            color: white;
+            font-size: 20px;
+            line-height: 1.6;
+            max-width: 700px;
+            margin: 0 auto;
+            text-align: left;
+        }
+        .instructions h2 {
+            text-align: center;
+        }
+        .continue-text {
+            text-align: center;
+            margin-top: 30px;
+            color: #aaa;
+        }
+        .feedback {
+            color: white;
+            font-size: 32px;
+            text-align: center;
+        }
+        .feedback.error {
+            color: #ff6666;
+        }
+        .results {
+            color: white;
+            font-size: 24px;
+            line-height: 1.8;
+            text-align: center;
+        }
+    </style>
+</head>
+<body></body>
+<script>
+// =============================================================================
+// COMBINED IOR EXPERIMENT
+// Part 1: Crossover (find ISI where IOR = 0)
+// Part 2: Peak IOR (find ISI with maximum IOR)
+// =============================================================================
+
+// =====================================================================
+// PART 1: CROSSOVER EXPERIMENT - Parameters & State
+// =====================================================================
+const CROSS_MIN_ISI = 50;
+const CROSS_MAX_ISI = 600;
+const CROSS_START_ISI = 200;
+const CROSS_STEP_SIZE_INITIAL = 50;
+const CROSS_STEP_SIZE_MIN = 10;
+const CROSS_N_REVERSALS = 12;
+const CROSS_N_TRIALS_MAX = 100;
+const CROSS_RT_WINDOW = 5;
+
+const CROSS_N_PRACTICE_TRIALS = 10;
+const CROSS_PRACTICE_ISIS = [50, 150, 250];
+
+let crossStaircase = {
+    currentISI: CROSS_START_ISI,
+    stepSize: CROSS_STEP_SIZE_INITIAL,
+    validRTs: [],
+    invalidRTs: [],
+    isiHistory: [],
+    effectHistory: [],
+    reversals: [],
+    lastDirection: null,
+    consecutiveFacilitation: 0,
+    consecutiveIOR: 0
+};
+
+let crossCurrentTrial = {
+    cueSide: 'left',
+    targetSide: 'left',
+    validity: 'valid',
+    correctResponse: 'f',
+    isi: 200,
+    isPractice: false
+};
+
+let crossMainTrialCount = 0;
+let crossPracticeTrialCount = 0;
+
+// --- Crossover Helper Functions ---
+function crossGetRecentRTs(n = CROSS_RT_WINDOW) {
+    const recentValid = crossStaircase.validRTs.slice(-n).filter(rt => rt !== null);
+    const recentInvalid = crossStaircase.invalidRTs.slice(-n).filter(rt => rt !== null);
+    return { recentValid, recentInvalid };
+}
+
+function crossShouldUpdateStaircase() {
+    const { recentValid, recentInvalid } = crossGetRecentRTs(CROSS_RT_WINDOW);
+    return recentValid.length >= CROSS_RT_WINDOW && recentInvalid.length >= CROSS_RT_WINDOW;
+}
+
+function crossUpdateStaircase() {
+    const { recentValid, recentInvalid } = crossGetRecentRTs(CROSS_RT_WINDOW);
+
+    if (recentValid.length < CROSS_RT_WINDOW || recentInvalid.length < CROSS_RT_WINDOW) {
+        return { newISI: crossStaircase.currentISI, reversal: false };
+    }
+
+    const meanValid = recentValid.reduce((a, b) => a + b, 0) / recentValid.length;
+    const meanInvalid = recentInvalid.reduce((a, b) => a + b, 0) / recentInvalid.length;
+
+    let effect;
+    if (meanValid < meanInvalid) {
+        effect = 'facilitation';
+        crossStaircase.consecutiveFacilitation++;
+        crossStaircase.consecutiveIOR = 0;
+    } else {
+        effect = 'ior';
+        crossStaircase.consecutiveIOR++;
+        crossStaircase.consecutiveFacilitation = 0;
+    }
+
+    crossStaircase.effectHistory.push(effect);
+    crossStaircase.isiHistory.push(crossStaircase.currentISI);
+
+    let reversal = false;
+    let newDirection = null;
+
+    if (effect === 'facilitation' && crossStaircase.consecutiveFacilitation >= 1) {
+        newDirection = 'up';
+        if (crossStaircase.lastDirection === 'down') {
+            reversal = true;
+            crossStaircase.reversals.push(crossStaircase.currentISI);
+            crossStaircase.stepSize = Math.max(CROSS_STEP_SIZE_MIN, crossStaircase.stepSize * 0.75);
+        }
+        crossStaircase.currentISI = Math.min(CROSS_MAX_ISI, crossStaircase.currentISI + crossStaircase.stepSize);
+        crossStaircase.consecutiveFacilitation = 0;
+        crossStaircase.lastDirection = newDirection;
+    } else if (effect === 'ior' && crossStaircase.consecutiveIOR >= 1) {
+        newDirection = 'down';
+        if (crossStaircase.lastDirection === 'up') {
+            reversal = true;
+            crossStaircase.reversals.push(crossStaircase.currentISI);
+            crossStaircase.stepSize = Math.max(CROSS_STEP_SIZE_MIN, crossStaircase.stepSize * 0.75);
+        }
+        crossStaircase.currentISI = Math.max(CROSS_MIN_ISI, crossStaircase.currentISI - crossStaircase.stepSize);
+        crossStaircase.consecutiveIOR = 0;
+        crossStaircase.lastDirection = newDirection;
+    }
+
+    return { newISI: crossStaircase.currentISI, reversal };
+}
+
+function crossIsStaircaseFinished() {
+    return crossStaircase.reversals.length >= CROSS_N_REVERSALS;
+}
+
+function crossGetThreshold() {
+    if (crossStaircase.reversals.length < 4) {
+        return crossStaircase.currentISI;
+    }
+    const nUse = Math.min(8, crossStaircase.reversals.length);
+    const lastReversals = crossStaircase.reversals.slice(-nUse);
+    return lastReversals.reduce((a, b) => a + b, 0) / lastReversals.length;
+}
+
+function crossSetupNewTrial(isPractice) {
+    crossCurrentTrial.isPractice = isPractice;
+    crossCurrentTrial.cueSide = Math.random() < 0.5 ? 'left' : 'right';
+    crossCurrentTrial.validity = Math.random() < 0.5 ? 'valid' : 'invalid';
+    crossCurrentTrial.targetSide = crossCurrentTrial.validity === 'valid' ?
+        crossCurrentTrial.cueSide :
+        (crossCurrentTrial.cueSide === 'left' ? 'right' : 'left');
+    crossCurrentTrial.correctResponse = crossCurrentTrial.targetSide === 'left' ? 'f' : 'j';
+
+    if (isPractice) {
+        crossCurrentTrial.isi = CROSS_PRACTICE_ISIS[Math.floor(Math.random() * CROSS_PRACTICE_ISIS.length)];
+    } else {
+        crossCurrentTrial.isi = crossStaircase.currentISI;
+    }
+}
+
+function crossGenerateTrialHTML(phase) {
+    if (phase === 'iti') {
+        return '<div class="trial-container"></div>';
+    }
+
+    let html = '<div class="trial-container">';
+    html += '<div class="fixation">+</div>';
+    html += '<div class="box left-box"></div>';
+    html += '<div class="box right-box"></div>';
+
+    if (phase === 'cue') {
+        html += `<div class="cue cue-${crossCurrentTrial.cueSide}"></div>`;
+    }
+
+    if (phase === 'target') {
+        html += `<div class="target target-${crossCurrentTrial.targetSide}"></div>`;
+    }
+
+    html += '</div>';
+    return html;
+}
+
+// =====================================================================
+// PART 2: PEAK IOR EXPERIMENT - Parameters & State
+// =====================================================================
+const PEAK_MIN_ISI = 100;
+const PEAK_MAX_ISI = 800;
+const PEAK_START_ISI = 300;
+const PEAK_STEP_SIZE_INITIAL = 75;
+const PEAK_STEP_SIZE_MIN = 15;
+const PEAK_N_REVERSALS = 12;
+const PEAK_N_TRIALS_MAX = 250;
+const PEAK_RT_WINDOW = 5;
+
+
+const PEAK_SAMPLING_ISIS = [100, 275, 450, 625, 800];
+const PEAK_N_SAMPLING_REPS = 5;
+
+let peakStaircase = {
+    currentISI: PEAK_START_ISI,
+    stepSize: PEAK_STEP_SIZE_INITIAL,
+    validRTs: [],
+    invalidRTs: [],
+    isiHistory: [],
+    iorHistory: [],
+    reversals: [],
+    lastDirection: null,
+    lastIOR: null,
+};
+
+let peakCurrentTrial = {
+    cueSide: 'left',
+    targetSide: 'left',
+    validity: 'valid',
+    correctResponse: 'f',
+    isi: 300,
+    isPractice: false
+};
+
+let peakMainTrialCount = 0;
+let peakSamplingTrialCount = 0;
+
+let peakSamplingData = {
+    trials: [],
+    schedule: []
+};
+
+// --- Peak IOR Helper Functions ---
+function peakGenerateSamplingSchedule() {
+    const schedule = [];
+    for (const isi of PEAK_SAMPLING_ISIS) {
+        for (let i = 0; i < PEAK_N_SAMPLING_REPS; i++) {
+            schedule.push({
+                isi: isi,
+                validity: i < Math.ceil(PEAK_N_SAMPLING_REPS / 2) ? 'valid' : 'invalid'
+            });
+        }
+    }
+    for (let i = schedule.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [schedule[i], schedule[j]] = [schedule[j], schedule[i]];
+    }
+    return schedule;
+}
+
+function peakFindBestStartingISI() {
+    const iorByISI = {};
+
+    for (const isi of PEAK_SAMPLING_ISIS) {
+        const isiTrials = peakSamplingData.trials.filter(t => t.isi === isi && t.correct && t.rt > 100);
+        const validRTs = isiTrials.filter(t => t.validity === 'valid').map(t => t.rt);
+        const invalidRTs = isiTrials.filter(t => t.validity === 'invalid').map(t => t.rt);
+
+        if (validRTs.length > 0 && invalidRTs.length > 0) {
+            const meanValid = validRTs.reduce((a, b) => a + b, 0) / validRTs.length;
+            const meanInvalid = invalidRTs.reduce((a, b) => a + b, 0) / invalidRTs.length;
+            iorByISI[isi] = meanValid - meanInvalid;
+        } else {
+            iorByISI[isi] = 0;
+        }
+    }
+
+    console.log('Sampling phase IOR by ISI:', iorByISI);
+
+    let bestISI = PEAK_START_ISI;
+    let maxIOR = -Infinity;
+    for (const [isi, ior] of Object.entries(iorByISI)) {
+        if (ior > maxIOR) {
+            maxIOR = ior;
+            bestISI = parseInt(isi);
+        }
+    }
+
+    console.log(`Best starting ISI from sampling: ${bestISI}ms (IOR = ${maxIOR.toFixed(1)}ms)`);
+    return bestISI;
+}
+
+function peakGetRecentRTs(n = PEAK_RT_WINDOW) {
+    const isiTolerance = 100;
+    const currentISI = peakStaircase.currentISI;
+
+    const recentValid = peakStaircase.validRTs
+        .filter(x => Math.abs(x.isi - currentISI) <= isiTolerance)
+        .slice(-n)
+        .map(x => x.rt);
+
+    const recentInvalid = peakStaircase.invalidRTs
+        .filter(x => Math.abs(x.isi - currentISI) <= isiTolerance)
+        .slice(-n)
+        .map(x => x.rt);
+
+    return { recentValid, recentInvalid };
+}
+
+function peakCalculateIOR() {
+    const { recentValid, recentInvalid } = peakGetRecentRTs(PEAK_RT_WINDOW);
+
+    if (recentValid.length < 3 || recentInvalid.length < 3) {
+        return null;
+    }
+
+    const meanValid = recentValid.reduce((a, b) => a + b, 0) / recentValid.length;
+    const meanInvalid = recentInvalid.reduce((a, b) => a + b, 0) / recentInvalid.length;
+
+    return meanValid - meanInvalid;
+}
+
+function peakShouldUpdateStaircase() {
+    const { recentValid, recentInvalid } = peakGetRecentRTs(PEAK_RT_WINDOW);
+    return recentValid.length >= 3 && recentInvalid.length >= 3;
+}
+
+function peakUpdateStaircase() {
+    const currentIOR = peakCalculateIOR();
+
+    if (currentIOR === null) {
+        return { newISI: peakStaircase.currentISI, reversal: false };
+    }
+
+    peakStaircase.iorHistory.push({ isi: peakStaircase.currentISI, ior: currentIOR });
+    peakStaircase.isiHistory.push(peakStaircase.currentISI);
+
+    let reversal = false;
+    let newDirection = null;
+
+    if (peakStaircase.lastIOR === null) {
+        newDirection = 'up';
+        peakStaircase.currentISI = Math.min(PEAK_MAX_ISI, peakStaircase.currentISI + peakStaircase.stepSize);
+        peakStaircase.lastDirection = newDirection;
+        peakStaircase.lastIOR = currentIOR;
+        return { newISI: peakStaircase.currentISI, reversal: false };
+    }
+
+    const iorDecreased = currentIOR < peakStaircase.lastIOR;
+
+    if (iorDecreased) {
+        if (peakStaircase.lastDirection === 'up') {
+            newDirection = 'down';
+        } else {
+            newDirection = 'up';
+        }
+        reversal = true;
+        peakStaircase.reversals.push(peakStaircase.currentISI);
+        peakStaircase.stepSize = Math.max(PEAK_STEP_SIZE_MIN, peakStaircase.stepSize * 0.7);
+    } else {
+        newDirection = peakStaircase.lastDirection || 'up';
+    }
+
+    if (newDirection === 'up') {
+        peakStaircase.currentISI = Math.min(PEAK_MAX_ISI, peakStaircase.currentISI + peakStaircase.stepSize);
+    } else {
+        peakStaircase.currentISI = Math.max(PEAK_MIN_ISI, peakStaircase.currentISI - peakStaircase.stepSize);
+    }
+
+    peakStaircase.lastDirection = newDirection;
+    peakStaircase.lastIOR = currentIOR;
+
+    return { newISI: peakStaircase.currentISI, reversal };
+}
+
+function peakIsStaircaseFinished() {
+    return peakStaircase.reversals.length >= PEAK_N_REVERSALS;
+}
+
+function peakGetPeakISI() {
+    if (peakStaircase.iorHistory.length < 4) {
+        return peakStaircase.currentISI;
+    }
+
+    if (peakStaircase.reversals.length >= 4) {
+        const nUse = Math.min(10, peakStaircase.reversals.length);
+        const lastReversals = peakStaircase.reversals.slice(-nUse);
+        return lastReversals.reduce((a, b) => a + b, 0) / lastReversals.length;
+    }
+
+    let maxIOR = -Infinity;
+    let peakISI = peakStaircase.currentISI;
+    for (const entry of peakStaircase.iorHistory) {
+        if (entry.ior > maxIOR) {
+            maxIOR = entry.ior;
+            peakISI = entry.isi;
+        }
+    }
+    return peakISI;
+}
+
+function peakGetMaxIOR() {
+    if (peakStaircase.iorHistory.length === 0) return 0;
+    return Math.max(...peakStaircase.iorHistory.map(x => x.ior));
+}
+
+function peakSetupNewTrial(isPractice, isSampling = false) {
+    peakCurrentTrial.isPractice = isPractice;
+    peakCurrentTrial.cueSide = Math.random() < 0.5 ? 'left' : 'right';
+
+    if (isSampling) {
+        const scheduledTrial = peakSamplingData.schedule[peakSamplingTrialCount];
+        peakCurrentTrial.validity = scheduledTrial.validity;
+        peakCurrentTrial.isi = scheduledTrial.isi;
+    } else {
+        peakCurrentTrial.validity = Math.random() < 0.5 ? 'valid' : 'invalid';
+        peakCurrentTrial.isi = peakStaircase.currentISI;
+    }
+
+    peakCurrentTrial.targetSide = peakCurrentTrial.validity === 'valid' ?
+        peakCurrentTrial.cueSide :
+        (peakCurrentTrial.cueSide === 'left' ? 'right' : 'left');
+    peakCurrentTrial.correctResponse = peakCurrentTrial.targetSide === 'left' ? 'f' : 'j';
+}
+
+function peakGenerateTrialHTML(phase) {
+    if (phase === 'iti') {
+        return '<div class="trial-container"></div>';
+    }
+
+    let html = '<div class="trial-container">';
+    html += '<div class="fixation">+</div>';
+    html += '<div class="box left-box"></div>';
+    html += '<div class="box right-box"></div>';
+
+    if (phase === 'cue') {
+        html += `<div class="cue cue-${peakCurrentTrial.cueSide}"></div>`;
+    }
+
+    if (phase === 'target') {
+        html += `<div class="target target-${peakCurrentTrial.targetSide}"></div>`;
+    }
+
+    html += '</div>';
+    return html;
+}
+
+// --- Shared Timing Parameters ---
+const FIXATION_DURATION = 750;
+const CUE_DURATION = 50;
+const TARGET_DURATION = 1000;
+
+// =============================================================================
+// INITIALIZE JSPSYCH
+// =============================================================================
+const jsPsych = initJsPsych({
+    on_finish: function() {
+        const crossThreshold = crossGetThreshold();
+        const peakISI = peakGetPeakISI();
+        const maxIOR = peakGetMaxIOR();
+        console.log('Combined experiment complete!');
+        console.log('Crossover ISI:', crossThreshold.toFixed(1), 'ms');
+        console.log('Peak IOR ISI:', peakISI.toFixed(1), 'ms');
+        console.log('Max IOR magnitude:', maxIOR.toFixed(1), 'ms');
+    }
+});
+
+// =============================================================================
+// COMBINED TIMELINE
+// =============================================================================
+let timeline = [];
+
+// --- Fullscreen ---
+timeline.push({
+    type: jsPsychFullscreen,
+    fullscreen_mode: true,
+    message: '<p style="color: white; font-size: 20px;">The experiment will switch to fullscreen mode.<br><br>Click the button below to continue.</p>',
+    button_label: 'Enter Fullscreen',
+    on_finish: function() {
+        document.body.style.cursor = 'none';
+    }
+});
+
+// =====================================================================
+// PART 1: CROSSOVER EXPERIMENT
+// =====================================================================
+
+// --- Crossover Instructions ---
+timeline.push({
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: `
+        <div class="instructions">
+            <h2>PART 1: STAIRCASE IOR EXPERIMENT</h2>
+            <p>Focus your eyes on the <strong>plus sign (+)</strong> at all times.</p>
+            <p>Two white squares will appear one after the other:</p>
+            <ul>
+                <li>The <strong>first square</strong> is the cue — <em>ignore it</em></li>
+                <li>The <strong>second square</strong> is the target — <em>respond to it</em></li>
+            </ul>
+            <p><strong>Your task:</strong></p>
+            <ul>
+                <li>Press <strong>F</strong> if the target appears in the <strong>LEFT</strong> box</li>
+                <li>Press <strong>J</strong> if the target appears in the <strong>RIGHT</strong> box</li>
+            </ul>
+            <p>Respond as <strong>QUICKLY</strong> and <strong>ACCURATELY</strong> as possible.</p>
+            <p class="continue-text">Press SPACE to continue</p>
+        </div>
+    `,
+    choices: [' ']
+});
+
+// --- Crossover Practice Instructions ---
+timeline.push({
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: `
+        <div class="instructions">
+            <h2>PRACTICE TRIALS</h2>
+            <p>You will now have ${CROSS_N_PRACTICE_TRIALS} practice trials.</p>
+            <p>Remember:</p>
+            <ul>
+                <li>Keep your eyes on the + sign</li>
+                <li>Respond only to the second square (target)</li>
+                <li>Press <strong>F</strong> for LEFT, <strong>J</strong> for RIGHT</li>
+            </ul>
+            <p class="continue-text">Press F or J to start practice</p>
+        </div>
+    `,
+    choices: ['f', 'j']
+});
+
+// --- Crossover Practice Procedure ---
+const crossPracticeProcedure = {
+    timeline: [
+        {
+            type: jsPsychCallFunction,
+            func: function() {
+                crossSetupNewTrial(true);
+                crossPracticeTrialCount++;
+            }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return crossGenerateTrialHTML('fixation'); },
+            choices: "NO_KEYS",
+            trial_duration: FIXATION_DURATION
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return crossGenerateTrialHTML('cue'); },
+            choices: "NO_KEYS",
+            trial_duration: CUE_DURATION
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return crossGenerateTrialHTML('fixation'); },
+            choices: "NO_KEYS",
+            trial_duration: function() { return crossCurrentTrial.isi; }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return crossGenerateTrialHTML('target'); },
+            choices: ['f', 'j'],
+            trial_duration: TARGET_DURATION,
+            data: {
+                task: 'ior-trial',
+                experiment: 'crossover',
+                practice: true
+            },
+            on_finish: function(data) {
+                data.cueSide = crossCurrentTrial.cueSide;
+                data.targetSide = crossCurrentTrial.targetSide;
+                data.validity = crossCurrentTrial.validity;
+                data.correctResponse = crossCurrentTrial.correctResponse;
+                data.isi = crossCurrentTrial.isi;
+                data.correct = data.response === crossCurrentTrial.correctResponse;
+            }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() {
+                const lastTrial = jsPsych.data.get().last(1).values()[0];
+                if (lastTrial.response === null) {
+                    return '<div class="feedback error">Too slow! Respond faster.</div>';
+                } else if (!lastTrial.correct) {
+                    return '<div class="feedback error">Incorrect! F = Left, J = Right</div>';
+                }
+                return '';
+            },
+            choices: "NO_KEYS",
+            trial_duration: function() {
+                const lastTrial = jsPsych.data.get().last(1).values()[0];
+                return (lastTrial.response === null || !lastTrial.correct) ? 1500 : 0;
+            }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return crossGenerateTrialHTML('iti'); },
+            choices: "NO_KEYS",
+            trial_duration: 750
+        }
+    ],
+    loop_function: function() {
+        return crossPracticeTrialCount < CROSS_N_PRACTICE_TRIALS;
+    }
+};
+timeline.push(crossPracticeProcedure);
+
+// --- Crossover Main Experiment Instructions ---
+timeline.push({
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: `
+        <div class="instructions">
+            <h2>MAIN EXPERIMENT — PART 1</h2>
+            <p>Practice complete! The main experiment will now begin.</p>
+            <p>The task will adapt based on your responses.</p>
+            <p>Continue until you see the break screen.</p>
+            <p class="continue-text">Press F or J to start</p>
+        </div>
+    `,
+    choices: ['f', 'j']
+});
+
+// --- Crossover Main Trial Procedure ---
+const crossMainProcedure = {
+    timeline: [
+        {
+            type: jsPsychCallFunction,
+            func: function() {
+                crossSetupNewTrial(false);
+                crossMainTrialCount++;
+            }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return crossGenerateTrialHTML('fixation'); },
+            choices: "NO_KEYS",
+            trial_duration: FIXATION_DURATION
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return crossGenerateTrialHTML('cue'); },
+            choices: "NO_KEYS",
+            trial_duration: CUE_DURATION
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return crossGenerateTrialHTML('fixation'); },
+            choices: "NO_KEYS",
+            trial_duration: function() { return crossCurrentTrial.isi; }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return crossGenerateTrialHTML('target'); },
+            choices: ['f', 'j'],
+            trial_duration: TARGET_DURATION,
+            data: {
+                task: 'ior-trial',
+                experiment: 'crossover',
+                practice: false
+            },
+            on_finish: function(data) {
+                data.trialNum = crossMainTrialCount;
+                data.cueSide = crossCurrentTrial.cueSide;
+                data.targetSide = crossCurrentTrial.targetSide;
+                data.validity = crossCurrentTrial.validity;
+                data.correctResponse = crossCurrentTrial.correctResponse;
+                data.isi = crossCurrentTrial.isi;
+                data.correct = data.response === crossCurrentTrial.correctResponse;
+                data.nReversals = crossStaircase.reversals.length;
+                data.stepSize = crossStaircase.stepSize;
+                data.currentISI = crossStaircase.currentISI;
+                data.reversal = false;
+
+                if (data.correct && data.rt !== null && data.rt > 100) {
+                    if (crossCurrentTrial.validity === 'valid') {
+                        crossStaircase.validRTs.push(data.rt);
+                    } else {
+                        crossStaircase.invalidRTs.push(data.rt);
+                    }
+
+                    if (crossShouldUpdateStaircase()) {
+                        const { reversal } = crossUpdateStaircase();
+                        data.reversal = reversal;
+                        data.nReversals = crossStaircase.reversals.length;
+                        if (reversal) {
+                            console.log(`[Crossover] Reversal ${crossStaircase.reversals.length}: ISI = ${crossStaircase.currentISI}ms`);
+                        }
+                    }
+                }
+            }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() {
+                const lastTrial = jsPsych.data.get().last(1).values()[0];
+                if (lastTrial.response === null) {
+                    return '<div class="feedback error">Too slow!</div>';
+                } else if (!lastTrial.correct) {
+                    return '<div class="feedback error">Incorrect!</div>';
+                }
+                return '';
+            },
+            choices: "NO_KEYS",
+            trial_duration: function() {
+                const lastTrial = jsPsych.data.get().last(1).values()[0];
+                return (lastTrial.response === null || !lastTrial.correct) ? 500 : 0;
+            }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return crossGenerateTrialHTML('iti'); },
+            choices: "NO_KEYS",
+            trial_duration: 750
+        }
+    ],
+    loop_function: function() {
+        return !crossIsStaircaseFinished() && crossMainTrialCount < CROSS_N_TRIALS_MAX;
+    }
+};
+timeline.push(crossMainProcedure);
+
+// =====================================================================
+// BREAK BETWEEN EXPERIMENTS
+// =====================================================================
+timeline.push({
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: `
+        <div class="instructions" style="text-align: center;">
+            <h2>BREAK</h2>
+            <p>You have completed Part 1.</p>
+            <p>Take a moment to rest your eyes.</p>
+            <p>Part 2 will use the same task — respond to the target square<br>
+            by pressing <strong>F</strong> (left) or <strong>J</strong> (right).</p>
+            <p class="continue-text">When you are ready, press SPACE to continue to Part 2</p>
+        </div>
+    `,
+    choices: [' ']
+});
+
+// =====================================================================
+// PART 2: PEAK IOR EXPERIMENT
+// =====================================================================
+
+// --- Peak IOR Instructions ---
+timeline.push({
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: `
+        <div class="instructions">
+            <h2>PART 2: PEAK IOR EXPERIMENT</h2>
+            <p>The task is the same as before:</p>
+            <ul>
+                <li>Focus on the <strong>plus sign (+)</strong></li>
+                <li>Ignore the first square (cue)</li>
+                <li>Respond to the second square (target)</li>
+            </ul>
+            <p><strong>F</strong> = LEFT &nbsp;&nbsp; <strong>J</strong> = RIGHT</p>
+            <p>Respond as <strong>QUICKLY</strong> and <strong>ACCURATELY</strong> as possible.</p>
+            <p class="continue-text">Press SPACE to continue</p>
+        </div>
+    `,
+    choices: [' ']
+});
+
+// --- Peak Sampling Phase Instructions ---
+timeline.push({
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: `
+        <div class="instructions">
+            <h2>SAMPLING PHASE</h2>
+            <p>First, we'll run a brief sampling phase.</p>
+            <p>This helps calibrate the experiment to your responses.</p>
+            <p>You'll complete ${PEAK_SAMPLING_ISIS.length * PEAK_N_SAMPLING_REPS} trials.</p>
+            <p class="continue-text">Press F or J to start sampling</p>
+        </div>
+    `,
+    choices: ['f', 'j'],
+    on_start: function() {
+        peakSamplingData.schedule = peakGenerateSamplingSchedule();
+        console.log('Peak sampling schedule generated:', peakSamplingData.schedule.length, 'trials');
+    }
+});
+
+// --- Peak Sampling Trial Procedure ---
+const peakSamplingProcedure = {
+    timeline: [
+        {
+            type: jsPsychCallFunction,
+            func: function() {
+                peakSetupNewTrial(false, true);
+            }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return peakGenerateTrialHTML('fixation'); },
+            choices: "NO_KEYS",
+            trial_duration: FIXATION_DURATION
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return peakGenerateTrialHTML('cue'); },
+            choices: "NO_KEYS",
+            trial_duration: CUE_DURATION
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return peakGenerateTrialHTML('fixation'); },
+            choices: "NO_KEYS",
+            trial_duration: function() { return peakCurrentTrial.isi; }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return peakGenerateTrialHTML('target'); },
+            choices: ['f', 'j'],
+            trial_duration: TARGET_DURATION,
+            data: {
+                task: 'ior-trial',
+                experiment: 'peak',
+                practice: false,
+                sampling: true
+            },
+            on_finish: function(data) {
+                data.samplingTrialNum = peakSamplingTrialCount + 1;
+                data.cueSide = peakCurrentTrial.cueSide;
+                data.targetSide = peakCurrentTrial.targetSide;
+                data.validity = peakCurrentTrial.validity;
+                data.correctResponse = peakCurrentTrial.correctResponse;
+                data.isi = peakCurrentTrial.isi;
+                data.correct = data.response === peakCurrentTrial.correctResponse;
+
+                peakSamplingData.trials.push({
+                    isi: peakCurrentTrial.isi,
+                    validity: peakCurrentTrial.validity,
+                    rt: data.rt,
+                    correct: data.correct
+                });
+
+                peakSamplingTrialCount++;
+            }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() {
+                const lastTrial = jsPsych.data.get().last(1).values()[0];
+                if (lastTrial.response === null) {
+                    return '<div class="feedback error">Too slow!</div>';
+                } else if (!lastTrial.correct) {
+                    return '<div class="feedback error">Incorrect!</div>';
+                }
+                return '';
+            },
+            choices: "NO_KEYS",
+            trial_duration: function() {
+                const lastTrial = jsPsych.data.get().last(1).values()[0];
+                return (lastTrial.response === null || !lastTrial.correct) ? 500 : 0;
+            }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return peakGenerateTrialHTML('iti'); },
+            choices: "NO_KEYS",
+            trial_duration: 750
+        }
+    ],
+    loop_function: function() {
+        return peakSamplingTrialCount < peakSamplingData.schedule.length;
+    }
+};
+timeline.push(peakSamplingProcedure);
+
+// --- Set peak staircase starting point based on sampling ---
+timeline.push({
+    type: jsPsychCallFunction,
+    func: function() {
+        const bestISI = peakFindBestStartingISI();
+        peakStaircase.currentISI = bestISI;
+        console.log('Peak staircase starting ISI set to:', bestISI);
+    }
+});
+
+// --- Peak Main Experiment Instructions ---
+timeline.push({
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: function() {
+        return `
+            <div class="instructions">
+                <h2>MAIN EXPERIMENT — PART 2</h2>
+                <p>Sampling complete! The adaptive staircase will now begin.</p>
+                <p>The task will adapt based on your responses.</p>
+                <p>Continue until you see the completion screen.</p>
+                <p class="continue-text">Press F or J to start</p>
+            </div>
+        `;
+    },
+    choices: ['f', 'j']
+});
+
+// --- Peak Main Trial Procedure ---
+const peakMainProcedure = {
+    timeline: [
+        {
+            type: jsPsychCallFunction,
+            func: function() {
+                peakSetupNewTrial(false);
+                peakMainTrialCount++;
+            }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return peakGenerateTrialHTML('fixation'); },
+            choices: "NO_KEYS",
+            trial_duration: FIXATION_DURATION
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return peakGenerateTrialHTML('cue'); },
+            choices: "NO_KEYS",
+            trial_duration: CUE_DURATION
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return peakGenerateTrialHTML('fixation'); },
+            choices: "NO_KEYS",
+            trial_duration: function() { return peakCurrentTrial.isi; }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return peakGenerateTrialHTML('target'); },
+            choices: ['f', 'j'],
+            trial_duration: TARGET_DURATION,
+            data: {
+                task: 'ior-trial',
+                experiment: 'peak',
+                practice: false
+            },
+            on_finish: function(data) {
+                data.trialNum = peakMainTrialCount;
+                data.cueSide = peakCurrentTrial.cueSide;
+                data.targetSide = peakCurrentTrial.targetSide;
+                data.validity = peakCurrentTrial.validity;
+                data.correctResponse = peakCurrentTrial.correctResponse;
+                data.isi = peakCurrentTrial.isi;
+                data.correct = data.response === peakCurrentTrial.correctResponse;
+                data.nReversals = peakStaircase.reversals.length;
+                data.stepSize = peakStaircase.stepSize;
+                data.currentISI = peakStaircase.currentISI;
+                data.currentIOR = peakStaircase.lastIOR || 0;
+                data.reversal = false;
+
+                if (data.correct && data.rt !== null && data.rt > 100) {
+                    if (peakCurrentTrial.validity === 'valid') {
+                        peakStaircase.validRTs.push({ isi: peakCurrentTrial.isi, rt: data.rt });
+                    } else {
+                        peakStaircase.invalidRTs.push({ isi: peakCurrentTrial.isi, rt: data.rt });
+                    }
+
+                    if (peakShouldUpdateStaircase()) {
+                        const { reversal } = peakUpdateStaircase();
+                        data.reversal = reversal;
+                        data.currentIOR = peakStaircase.lastIOR || 0;
+                        data.nReversals = peakStaircase.reversals.length;
+                        if (reversal) {
+                            console.log(`[Peak] Reversal ${peakStaircase.reversals.length}: ISI = ${peakStaircase.currentISI}ms, IOR = ${peakStaircase.lastIOR?.toFixed(1)}ms`);
+                        }
+                    }
+                }
+            }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() {
+                const lastTrial = jsPsych.data.get().last(1).values()[0];
+                if (lastTrial.response === null) {
+                    return '<div class="feedback error">Too slow!</div>';
+                } else if (!lastTrial.correct) {
+                    return '<div class="feedback error">Incorrect!</div>';
+                }
+                return '';
+            },
+            choices: "NO_KEYS",
+            trial_duration: function() {
+                const lastTrial = jsPsych.data.get().last(1).values()[0];
+                return (lastTrial.response === null || !lastTrial.correct) ? 500 : 0;
+            }
+        },
+        {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() { return peakGenerateTrialHTML('iti'); },
+            choices: "NO_KEYS",
+            trial_duration: 750
+        }
+    ],
+    loop_function: function() {
+        return !peakIsStaircaseFinished() && peakMainTrialCount < PEAK_N_TRIALS_MAX;
+    }
+};
+timeline.push(peakMainProcedure);
+
+// =====================================================================
+// COMBINED RESULTS & DATA DOWNLOAD
+// =====================================================================
+timeline.push({
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: function() {
+        const crossThreshold = crossGetThreshold();
+        const peakISI = peakGetPeakISI();
+        const maxIOR = peakGetMaxIOR();
+
+        return `
+            <div class="results">
+                <h2>EXPERIMENT COMPLETE</h2>
+                <br>
+                <p><strong>Part 1 — Crossover:</strong></p>
+                <p>Trials: ${crossMainTrialCount} &nbsp;|&nbsp; Reversals: ${crossStaircase.reversals.length}</p>
+                <p style="font-size: 32px; color: #66ff66;">Crossover ISI: ${crossThreshold.toFixed(1)} ms</p>
+                <br>
+                <p><strong>Part 2 — Peak IOR:</strong></p>
+                <p>Sampling trials: ${peakSamplingTrialCount} &nbsp;|&nbsp; Staircase trials: ${peakMainTrialCount} &nbsp;|&nbsp; Reversals: ${peakStaircase.reversals.length}</p>
+                <p style="font-size: 32px; color: #66ff66;">Peak IOR ISI: ${peakISI.toFixed(1)} ms</p>
+                <p style="font-size: 24px; color: #ffaa66;">Max IOR magnitude: ${maxIOR.toFixed(1)} ms</p>
+                <br>
+                <p>Thank you for participating!</p>
+                <p style="color: #aaa; margin-top: 30px;">Press SPACE to finish and download data</p>
+            </div>
+        `;
+    },
+    choices: [' '],
+    on_finish: function() {
+        const allTrials = jsPsych.data.get().values();
+        const crossThreshold = crossGetThreshold();
+        const peakISI = peakGetPeakISI();
+        const maxIOR = peakGetMaxIOR();
+
+        // ---- Build combined CSV ----
+        let csvContent = '';
+
+        // === SUMMARY ===
+        csvContent += '=== EXPERIMENT SUMMARY ===\n';
+        csvContent += `Subject ID,${Date.now()}\n`;
+        csvContent += `Date,${new Date().toISOString()}\n`;
+        csvContent += '\n';
+        csvContent += '--- Part 1: Crossover ---\n';
+        csvContent += `Crossover Trials,${crossMainTrialCount}\n`;
+        csvContent += `Crossover Reversals,${crossStaircase.reversals.length}\n`;
+        csvContent += `Crossover Threshold ISI (ms),${crossThreshold.toFixed(2)}\n`;
+        const crossMeanValid = crossStaircase.validRTs.length > 0 ?
+            crossStaircase.validRTs.reduce((a, b) => a + b, 0) / crossStaircase.validRTs.length : 0;
+        const crossMeanInvalid = crossStaircase.invalidRTs.length > 0 ?
+            crossStaircase.invalidRTs.reduce((a, b) => a + b, 0) / crossStaircase.invalidRTs.length : 0;
+        csvContent += `Crossover Mean Valid RT (ms),${crossMeanValid.toFixed(2)}\n`;
+        csvContent += `Crossover Mean Invalid RT (ms),${crossMeanInvalid.toFixed(2)}\n`;
+        csvContent += `Crossover Final Step Size,${crossStaircase.stepSize.toFixed(2)}\n`;
+        csvContent += `Crossover ISI Range,${CROSS_MIN_ISI}-${CROSS_MAX_ISI} ms\n`;
+        csvContent += '\n';
+        csvContent += '--- Part 2: Peak IOR ---\n';
+        csvContent += `Peak Sampling Trials,${peakSamplingTrialCount}\n`;
+        csvContent += `Peak Staircase Trials,${peakMainTrialCount}\n`;
+        csvContent += `Peak Reversals,${peakStaircase.reversals.length}\n`;
+        csvContent += `Peak IOR ISI (ms),${peakISI.toFixed(2)}\n`;
+        csvContent += `Max IOR Magnitude (ms),${maxIOR.toFixed(2)}\n`;
+        csvContent += `Peak Final Step Size,${peakStaircase.stepSize.toFixed(2)}\n`;
+        csvContent += `Peak ISI Range,${PEAK_MIN_ISI}-${PEAK_MAX_ISI} ms\n`;
+        csvContent += '\n';
+
+        // === CROSSOVER REVERSAL DATA ===
+        if (crossStaircase.reversals.length > 0) {
+            csvContent += '=== CROSSOVER REVERSAL DATA ===\n';
+            csvContent += 'Reversal Number,ISI (ms)\n';
+            crossStaircase.reversals.forEach((isi, index) => {
+                csvContent += `${index + 1},${isi}\n`;
+            });
+            csvContent += '\n';
+        }
+
+        // === CROSSOVER STAIRCASE HISTORY ===
+        if (crossStaircase.isiHistory.length > 0) {
+            csvContent += '=== CROSSOVER STAIRCASE HISTORY ===\n';
+            csvContent += 'Update,ISI (ms),Effect\n';
+            crossStaircase.isiHistory.forEach((isi, index) => {
+                const effect = crossStaircase.effectHistory[index] || '';
+                csvContent += `${index + 1},${isi},${effect}\n`;
+            });
+            csvContent += '\n';
+        }
+
+        // === PEAK REVERSAL DATA ===
+        if (peakStaircase.reversals.length > 0) {
+            csvContent += '=== PEAK IOR REVERSAL DATA ===\n';
+            csvContent += 'Reversal Number,ISI (ms)\n';
+            peakStaircase.reversals.forEach((isi, index) => {
+                csvContent += `${index + 1},${isi}\n`;
+            });
+            csvContent += '\n';
+        }
+
+        // === TRIAL DATA (both experiments) ===
+        csvContent += '=== TRIAL DATA ===\n';
+        csvContent += 'experiment,phase,trial_num,isi,validity,rt,correct,response,cue_side,target_side,reversal,n_reversals,step_size,current_ior\n';
+
+        const iorTrials = allTrials.filter(trial => trial.task === 'ior-trial');
+
+        iorTrials.forEach(trial => {
+            const experiment = trial.experiment || '';
+            let phase = 'main';
+            if (trial.practice === true) phase = 'practice';
+            else if (trial.sampling === true) phase = 'sampling';
+
+            const trialNum = trial.sampling === true ? trial.samplingTrialNum :
+                (trial.trialNum !== undefined ? trial.trialNum : '');
+
+            const row = [
+                experiment,
+                phase,
+                trialNum,
+                trial.isi !== undefined ? trial.isi : '',
+                trial.validity !== undefined ? trial.validity : '',
+                trial.rt !== null && trial.rt !== undefined ? trial.rt : '',
+                trial.correct !== undefined ? trial.correct : '',
+                trial.response !== null && trial.response !== undefined ? trial.response : '',
+                trial.cueSide || '',
+                trial.targetSide || '',
+                trial.reversal !== undefined ? trial.reversal : '',
+                trial.nReversals !== undefined ? trial.nReversals : '',
+                trial.stepSize !== undefined ? trial.stepSize : '',
+                trial.currentIOR !== null && trial.currentIOR !== undefined ? trial.currentIOR : ''
+            ];
+            csvContent += row.join(',') + '\n';
+        });
+
+        // Download
+        const blob = new Blob([csvContent], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `combined_ior_${Date.now()}.csv`;
+        a.click();
+    }
+});
+
+// --- Exit Fullscreen ---
+timeline.push({
+    type: jsPsychFullscreen,
+    fullscreen_mode: false,
+    on_start: function() {
+        document.body.style.cursor = 'auto';
+    }
+});
+
+// =============================================================================
+// RUN EXPERIMENT
+// =============================================================================
+jsPsych.run(timeline);
+</script>
+</html>
