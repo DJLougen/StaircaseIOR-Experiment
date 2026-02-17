@@ -105,6 +105,16 @@
 // Part 2: Peak IOR (find ISI with maximum IOR)
 // =============================================================================
 
+// --- Prolific Integration ---
+const COMPLETION_CODE = 'C1X7K9M2';
+const PROLIFIC_REDIRECT_URL = `https://app.prolific.com/submissions/complete?cc=${COMPLETION_CODE}`;
+
+// Extract Prolific URL parameters
+const urlParams = new URLSearchParams(window.location.search);
+const PROLIFIC_PID = urlParams.get('PROLIFIC_PID') || 'unknown';
+const STUDY_ID = urlParams.get('STUDY_ID') || 'unknown';
+const SESSION_ID = urlParams.get('SESSION_ID') || 'unknown';
+
 // =====================================================================
 // PART 1: CROSSOVER EXPERIMENT - Parameters & State
 // =====================================================================
@@ -1084,7 +1094,13 @@ timeline.push({
                 <p style="font-size: 24px; color: #ffaa66;">Max IOR magnitude: ${maxIOR.toFixed(1)} ms</p>
                 <br>
                 <p>Thank you for participating!</p>
-                <p style="color: #aaa; margin-top: 30px;">Press SPACE to finish and download data</p>
+                <p>Your data is being saved...</p>
+                <br>
+                <p><strong>Your completion code:</strong></p>
+                <p><input type="text" value="${COMPLETION_CODE}" readonly
+                    style="font-size: 36px; color: #66ff66; background: transparent; border: 2px solid #66ff66; padding: 10px 20px; text-align: center; font-family: monospace; cursor: text;"
+                    onclick="this.select()"></p>
+                <p style="color: #aaa; margin-top: 30px;">Press SPACE to finish and redirect to Prolific</p>
             </div>
         `;
     },
@@ -1100,7 +1116,9 @@ timeline.push({
 
         // === SUMMARY ===
         csvContent += '=== EXPERIMENT SUMMARY ===\n';
-        csvContent += `Subject ID,${Date.now()}\n`;
+        csvContent += `Prolific PID,${PROLIFIC_PID}\n`;
+        csvContent += `Study ID,${STUDY_ID}\n`;
+        csvContent += `Session ID,${SESSION_ID}\n`;
         csvContent += `Date,${new Date().toISOString()}\n`;
         csvContent += '\n';
         csvContent += '--- Part 1: Crossover ---\n';
@@ -1198,6 +1216,11 @@ timeline.push({
         a.href = url;
         a.download = `combined_ior_${Date.now()}.csv`;
         a.click();
+
+        // Redirect to Prolific after a short delay
+        setTimeout(function() {
+            window.location.href = PROLIFIC_REDIRECT_URL;
+        }, 1000);
     }
 });
 
