@@ -110,9 +110,9 @@ const MAX_ISI = 600;
 const START_ISI = 200;
 const STEP_SIZE_INITIAL = 50;
 const STEP_SIZE_MIN = 10;
-const N_REVERSALS = 12;
-const N_TRIALS_MAX = 200;
-const RT_WINDOW = 4;
+const N_REVERSALS = 6;  // Reduced for faster completion
+const N_TRIALS_MAX = 100;  // Reduced for testing
+const RT_WINDOW = 3;  // Reduced from 4
 
 // --- Timing Parameters (in ms) ---
 const FIXATION_DURATION = 750;
@@ -567,49 +567,89 @@ timeline.push({
     },
     choices: [' '],
     on_finish: function() {
-        // Get all trial data and filter for main (non-practice) trials
+        // Get all trial data
         const allTrials = jsPsych.data.get().values();
+        const iorTrials = allTrials.filter(trial => trial.trial_type === 'ior-trial');
 
-        // Debug: log all trials with their properties
-        console.log('All trials:', allTrials.length);
-        allTrials.forEach((t, i) => {
-            if (t.trial_type === 'ior-trial') {
-                console.log(`Trial ${i}: type=${t.trial_type}, practice=${t.practice}, trialNum=${t.trialNum}`);
+        // Calculate primary metrics
+        const threshold = getThreshold();
+        const meanValidRT = staircase.validRTs.length > 0 ? 
+            staircase.validRTs.reduce((a, b) => a + b, 0) / staircase.validRTs.length : 0;
+        const meanInvalidRT = staircase.invalidRTs.length > 0 ? 
+            staircase.invalidRTs.reduce((a, b) => a + b, 0) / staircase.invalidRTs.length : 0;
+        const finalStepSize = staircase.stepSize;
+
+        // Create comprehensive CSV content
+        let csvContent = '';
+
+        // Add summary section
+        csvContent += '=== EXPERIMENT SUMMARY ===\n';
+        csvContent += `Subject ID,${Date.now()}\n`;
+        csvContent += `Date,${new Date().toISOString()}\n`;
+        csvContent += `Total Trials,${mainTrialCount}\n`;
+        csvContent += `Reversals,${staircase.reversals.length}\n`;
+        csvContent += `Threshold ISI (ms),${threshold.toFixed(2)}\n`;
+        csvContent += `Mean Valid RT (ms),${meanValidRT.toFixed(2)}\n`;
+        csvContent += `Mean Invalid RT (ms),${meanInvalidRT.toFixed(2)}\n`;
+        csvContent += `Final Step Size,${finalStepSize.toFixed(2)}\n`;
+        csvContent += `Staircase Range,${MIN_ISI}-${MAX_ISI} ms\n`;
+        csvContent += '\n';
+
+        // Add reversal data
+        if (staircase.reversals.length > 0) {
+            csvContent += '=== REVERSAL DATA ===\n';
+            csvContent += 'Reversal Number,ISI (ms)\n';
+            staircase.reversals.forEach((isi, index) => {
+                csvContent += `${index + 1},${isi}\n`;
+            });
+            csvContent += '\n';
+        }
+
+        // Add staircase history
+        if (staircase.isiHistory.length > 0) {
+            csvContent += '=== STAIRCASE HISTORY ===\n';
+            csvContent += 'Trial,ISI (ms),Effect\n';
+            staircase.isiHistory.forEach((isi, index) => {
+                const effect = staircase.effectHistory[index] || '';
+                csvContent += `${index + 1},${isi},${effect}\n`;
+            });
+            csvContent += '\n';
+        }
+
+        // Add trial-by-trial data
+        csvContent += '=== TRIAL DATA ===\n';
+        csvContent += 'trial_num,trial_type,cue_side,target_side,validity,isi_ms,response,correct,rt_ms,reversal,n_reversals,step_size\n';
+
+        iorTrials.forEach(trial => {
+            if (trial.trialNum !== undefined || trial.practice === true) {
+                const trialNum = trial.practice ? 
+                    `practice_${trial.trialNum || ''}` : 
+                    trial.trialNum;
+                
+                const row = [
+                    trialNum,
+                    trial.practice ? 'practice' : 'main',
+                    trial.cueSide || '',
+                    trial.targetSide || '',
+                    trial.validity || '',
+                    trial.isi || '',
+                    trial.response === null ? '' : trial.response,
+                    trial.correct === undefined ? '' : trial.correct,
+                    trial.rt === null ? '' : Math.round(trial.rt),
+                    trial.reversal === undefined ? '' : trial.reversal,
+                    trial.nReversals === undefined ? '' : trial.nReversals,
+                    trial.stepSize === undefined ? '' : trial.stepSize.toFixed(2)
+                ];
+                csvContent += row.join(',') + '\n';
             }
         });
 
-        const mainTrials = allTrials.filter(trial =>
-            trial.trial_type === 'ior-trial' && trial.practice === false
-        );
-
-        console.log('Main IOR trials found:', mainTrials.length);
-
-        // Create clean CSV with key columns for plotting
-        const headers = ['trialNum', 'isi', 'validity', 'rt', 'correct', 'response', 'cueSide', 'targetSide', 'reversal', 'nReversals', 'stepSize'];
-        let csvContent = headers.join(',') + '\n';
-
-        mainTrials.forEach(trial => {
-            const row = [
-                trial.trialNum !== undefined ? trial.trialNum : '',
-                trial.isi !== undefined ? trial.isi : '',
-                trial.validity !== undefined ? trial.validity : '',
-                trial.rt !== null && trial.rt !== undefined ? trial.rt : '',
-                trial.correct !== undefined ? trial.correct : '',
-                trial.response !== null && trial.response !== undefined ? trial.response : '',
-                trial.cueSide !== undefined ? trial.cueSide : '',
-                trial.targetSide !== undefined ? trial.targetSide : '',
-                trial.reversal !== undefined ? trial.reversal : '',
-                trial.nReversals !== undefined ? trial.nReversals : '',
-                trial.stepSize !== undefined ? trial.stepSize : ''
-            ];
-            csvContent += row.join(',') + '\n';
-        });
-
+        // Create and download file
         const blob = new Blob([csvContent], { type: 'text/csv' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `crossover_ior_${Date.now()}.csv`;
+        a.download = `staircase_ior_complete_${Date.now()}.csv`;
         a.click();
     }
 });
