@@ -9,6 +9,7 @@
     <script src="https://unpkg.com/@jspsych/plugin-preload@1.1.3"></script>
     <script src="https://unpkg.com/@jspsych/plugin-fullscreen@1.2.1"></script>
     <script src="https://unpkg.com/@jspsych/plugin-call-function@1.1.3"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-pavlovia@1.1.3"></script>
     <link href="https://unpkg.com/jspsych@7.3.4/css/jspsych.css" rel="stylesheet" type="text/css" />
     <style>
         body {
@@ -124,11 +125,11 @@ const CROSS_MAX_ISI = 600;
 const CROSS_START_ISI = 200;
 const CROSS_STEP_SIZE_INITIAL = 50;
 const CROSS_STEP_SIZE_MIN = 10;
-const CROSS_N_REVERSALS = 12;
-const CROSS_N_TRIALS_MAX = 100;
+const CROSS_N_REVERSALS = 3;
+const CROSS_N_TRIALS_MAX = 30;
 const CROSS_RT_WINDOW = 5;
 
-const CROSS_N_PRACTICE_TRIALS = 10;
+const CROSS_N_PRACTICE_TRIALS = 2;
 const CROSS_PRACTICE_ISIS = [50, 150, 250];
 
 let crossStaircase = {
@@ -279,13 +280,13 @@ const PEAK_MAX_ISI = 800;
 const PEAK_START_ISI = 300;
 const PEAK_STEP_SIZE_INITIAL = 75;
 const PEAK_STEP_SIZE_MIN = 15;
-const PEAK_N_REVERSALS = 12;
-const PEAK_N_TRIALS_MAX = 250;
+const PEAK_N_REVERSALS = 3;
+const PEAK_N_TRIALS_MAX = 40;
 const PEAK_RT_WINDOW = 5;
 
 
 const PEAK_SAMPLING_ISIS = [100, 275, 450, 625, 800];
-const PEAK_N_SAMPLING_REPS = 5;
+const PEAK_N_SAMPLING_REPS = 2;
 
 let peakStaircase = {
     currentISI: PEAK_START_ISI,
@@ -545,6 +546,12 @@ const jsPsych = initJsPsych({
 // COMBINED TIMELINE
 // =============================================================================
 let timeline = [];
+
+// --- Initialize Pavlovia ---
+timeline.push({
+    type: jsPsychPavlovia,
+    command: "init"
+});
 
 // --- Fullscreen ---
 timeline.push({
@@ -1214,6 +1221,12 @@ timeline.push({
             window.location.href = PROLIFIC_REDIRECT_URL;
         }, 1000);
     }
+});
+
+// --- Finish and Upload to Pavlovia ---
+timeline.push({
+    type: jsPsychPavlovia,
+    command: "finish"
 });
 
 // --- Exit Fullscreen ---
