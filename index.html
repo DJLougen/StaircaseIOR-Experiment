@@ -547,12 +547,6 @@ const jsPsych = initJsPsych({
 // =============================================================================
 let timeline = [];
 
-// --- Initialize Pavlovia ---
-timeline.push({
-    type: jsPsychPavlovia,
-    command: "init"
-});
-
 // --- Fullscreen ---
 timeline.push({
     type: jsPsychFullscreen,
@@ -562,6 +556,12 @@ timeline.push({
     on_finish: function() {
         document.body.style.cursor = 'none';
     }
+});
+
+// --- Initialize Pavlovia ---
+timeline.push({
+    type: jsPsychPavlovia,
+    command: "init"
 });
 
 // =====================================================================
