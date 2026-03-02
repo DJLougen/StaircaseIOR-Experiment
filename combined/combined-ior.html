@@ -1105,6 +1105,9 @@ timeline.push({
         `;
     },
     choices: [' '],
+    on_start: function() {
+        document.body.style.cursor = 'auto';
+    },
     on_finish: function() {
         const allTrials = jsPsych.data.get().values();
         const crossThreshold = crossGetThreshold();
