@@ -1216,17 +1216,16 @@ timeline.push({
         a.download = `combined_ior_${Date.now()}.csv`;
         a.click();
 
-        // Redirect to Prolific after a short delay
-        setTimeout(function() {
-            window.location.href = PROLIFIC_REDIRECT_URL;
-        }, 1000);
     }
 });
 
 // --- Finish and Upload to Pavlovia ---
 timeline.push({
     type: jsPsychPavlovia,
-    command: "finish"
+    command: "finish",
+    on_finish: function() {
+        window.location.href = PROLIFIC_REDIRECT_URL;
+    }
 });
 
 // --- Exit Fullscreen ---
