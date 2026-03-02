@@ -573,10 +573,7 @@ timeline.push({
                 <li>The <strong>second square</strong> is the target — <em>respond to it</em></li>
             </ul>
             <p><strong>Your task:</strong></p>
-            <ul>
-                <li>Press <strong>F</strong> if the target appears in the <strong>LEFT</strong> box</li>
-                <li>Press <strong>J</strong> if the target appears in the <strong>RIGHT</strong> box</li>
-            </ul>
+            <p>Press <strong>SPACEBAR</strong> as quickly as possible when the target appears.</p>
             <p>Respond as <strong>QUICKLY</strong> and <strong>ACCURATELY</strong> as possible.</p>
             <p class="continue-text">Press SPACE to continue</p>
         </div>
@@ -595,12 +592,12 @@ timeline.push({
             <ul>
                 <li>Keep your eyes on the + sign</li>
                 <li>Respond only to the second square (target)</li>
-                <li>Press <strong>F</strong> for LEFT, <strong>J</strong> for RIGHT</li>
+                <li>Press <strong>SPACEBAR</strong> when the target appears</li>
             </ul>
-            <p class="continue-text">Press F or J to start practice</p>
+            <p class="continue-text">Press SPACE to start practice</p>
         </div>
     `,
-    choices: ['f', 'j']
+    choices: [' ']
 });
 
 // --- Crossover Practice Procedure ---
@@ -634,7 +631,7 @@ const crossPracticeProcedure = {
         {
             type: jsPsychHtmlKeyboardResponse,
             stimulus: function() { return crossGenerateTrialHTML('target'); },
-            choices: ['f', 'j'],
+            choices: [' '],
             trial_duration: TARGET_DURATION,
             data: {
                 task: 'ior-trial',
@@ -647,7 +644,7 @@ const crossPracticeProcedure = {
                 data.validity = crossCurrentTrial.validity;
                 data.correctResponse = crossCurrentTrial.correctResponse;
                 data.isi = crossCurrentTrial.isi;
-                data.correct = data.response === crossCurrentTrial.correctResponse;
+                data.correct = data.response !== null;
             }
         },
         {
@@ -656,15 +653,13 @@ const crossPracticeProcedure = {
                 const lastTrial = jsPsych.data.get().last(1).values()[0];
                 if (lastTrial.response === null) {
                     return '<div class="feedback error">Too slow! Respond faster.</div>';
-                } else if (!lastTrial.correct) {
-                    return '<div class="feedback error">Incorrect! F = Left, J = Right</div>';
                 }
                 return '';
             },
             choices: "NO_KEYS",
             trial_duration: function() {
                 const lastTrial = jsPsych.data.get().last(1).values()[0];
-                return (lastTrial.response === null || !lastTrial.correct) ? 1500 : 0;
+                return (lastTrial.response === null) ? 1500 : 0;
             }
         },
         {
@@ -689,10 +684,10 @@ timeline.push({
             <p>Practice complete! The main experiment will now begin.</p>
             <p>The task will adapt based on your responses.</p>
             <p>Continue until you see the break screen.</p>
-            <p class="continue-text">Press F or J to start</p>
+            <p class="continue-text">Press SPACE to start</p>
         </div>
     `,
-    choices: ['f', 'j']
+    choices: [' ']
 });
 
 // --- Crossover Main Trial Procedure ---
@@ -726,7 +721,7 @@ const crossMainProcedure = {
         {
             type: jsPsychHtmlKeyboardResponse,
             stimulus: function() { return crossGenerateTrialHTML('target'); },
-            choices: ['f', 'j'],
+            choices: [' '],
             trial_duration: TARGET_DURATION,
             data: {
                 task: 'ior-trial',
@@ -740,7 +735,7 @@ const crossMainProcedure = {
                 data.validity = crossCurrentTrial.validity;
                 data.correctResponse = crossCurrentTrial.correctResponse;
                 data.isi = crossCurrentTrial.isi;
-                data.correct = data.response === crossCurrentTrial.correctResponse;
+                data.correct = data.response !== null;
                 data.nReversals = crossStaircase.reversals.length;
                 data.stepSize = crossStaircase.stepSize;
                 data.currentISI = crossStaircase.currentISI;
@@ -770,15 +765,13 @@ const crossMainProcedure = {
                 const lastTrial = jsPsych.data.get().last(1).values()[0];
                 if (lastTrial.response === null) {
                     return '<div class="feedback error">Too slow!</div>';
-                } else if (!lastTrial.correct) {
-                    return '<div class="feedback error">Incorrect!</div>';
                 }
                 return '';
             },
             choices: "NO_KEYS",
             trial_duration: function() {
                 const lastTrial = jsPsych.data.get().last(1).values()[0];
-                return (lastTrial.response === null || !lastTrial.correct) ? 500 : 0;
+                return (lastTrial.response === null) ? 500 : 0;
             }
         },
         {
@@ -804,8 +797,7 @@ timeline.push({
             <h2>BREAK</h2>
             <p>You have completed Part 1.</p>
             <p>Take a moment to rest your eyes.</p>
-            <p>Part 2 will use the same task — respond to the target square<br>
-            by pressing <strong>F</strong> (left) or <strong>J</strong> (right).</p>
+            <p>Part 2 will use the same task — press <strong>SPACEBAR</strong> when the target appears.</p>
             <p class="continue-text">When you are ready, press SPACE to continue to Part 2</p>
         </div>
     `,
@@ -828,7 +820,7 @@ timeline.push({
                 <li>Ignore the first square (cue)</li>
                 <li>Respond to the second square (target)</li>
             </ul>
-            <p><strong>F</strong> = LEFT &nbsp;&nbsp; <strong>J</strong> = RIGHT</p>
+            <p>Press <strong>SPACEBAR</strong> when the target appears.</p>
             <p>Respond as <strong>QUICKLY</strong> and <strong>ACCURATELY</strong> as possible.</p>
             <p class="continue-text">Press SPACE to continue</p>
         </div>
@@ -845,10 +837,10 @@ timeline.push({
             <p>First, we'll run a brief sampling phase.</p>
             <p>This helps calibrate the experiment to your responses.</p>
             <p>You'll complete ${PEAK_SAMPLING_ISIS.length * PEAK_N_SAMPLING_REPS} trials.</p>
-            <p class="continue-text">Press F or J to start sampling</p>
+            <p class="continue-text">Press SPACE to start sampling</p>
         </div>
     `,
-    choices: ['f', 'j'],
+    choices: [' '],
     on_start: function() {
         peakSamplingData.schedule = peakGenerateSamplingSchedule();
         console.log('Peak sampling schedule generated:', peakSamplingData.schedule.length, 'trials');
@@ -885,7 +877,7 @@ const peakSamplingProcedure = {
         {
             type: jsPsychHtmlKeyboardResponse,
             stimulus: function() { return peakGenerateTrialHTML('target'); },
-            choices: ['f', 'j'],
+            choices: [' '],
             trial_duration: TARGET_DURATION,
             data: {
                 task: 'ior-trial',
@@ -900,7 +892,7 @@ const peakSamplingProcedure = {
                 data.validity = peakCurrentTrial.validity;
                 data.correctResponse = peakCurrentTrial.correctResponse;
                 data.isi = peakCurrentTrial.isi;
-                data.correct = data.response === peakCurrentTrial.correctResponse;
+                data.correct = data.response !== null;
 
                 peakSamplingData.trials.push({
                     isi: peakCurrentTrial.isi,
@@ -918,15 +910,13 @@ const peakSamplingProcedure = {
                 const lastTrial = jsPsych.data.get().last(1).values()[0];
                 if (lastTrial.response === null) {
                     return '<div class="feedback error">Too slow!</div>';
-                } else if (!lastTrial.correct) {
-                    return '<div class="feedback error">Incorrect!</div>';
                 }
                 return '';
             },
             choices: "NO_KEYS",
             trial_duration: function() {
                 const lastTrial = jsPsych.data.get().last(1).values()[0];
-                return (lastTrial.response === null || !lastTrial.correct) ? 500 : 0;
+                return (lastTrial.response === null) ? 500 : 0;
             }
         },
         {
@@ -962,11 +952,11 @@ timeline.push({
                 <p>Sampling complete! The adaptive staircase will now begin.</p>
                 <p>The task will adapt based on your responses.</p>
                 <p>Continue until you see the completion screen.</p>
-                <p class="continue-text">Press F or J to start</p>
+                <p class="continue-text">Press SPACE to start</p>
             </div>
         `;
     },
-    choices: ['f', 'j']
+    choices: [' ']
 });
 
 // --- Peak Main Trial Procedure ---
@@ -1000,7 +990,7 @@ const peakMainProcedure = {
         {
             type: jsPsychHtmlKeyboardResponse,
             stimulus: function() { return peakGenerateTrialHTML('target'); },
-            choices: ['f', 'j'],
+            choices: [' '],
             trial_duration: TARGET_DURATION,
             data: {
                 task: 'ior-trial',
@@ -1014,7 +1004,7 @@ const peakMainProcedure = {
                 data.validity = peakCurrentTrial.validity;
                 data.correctResponse = peakCurrentTrial.correctResponse;
                 data.isi = peakCurrentTrial.isi;
-                data.correct = data.response === peakCurrentTrial.correctResponse;
+                data.correct = data.response !== null;
                 data.nReversals = peakStaircase.reversals.length;
                 data.stepSize = peakStaircase.stepSize;
                 data.currentISI = peakStaircase.currentISI;
@@ -1046,15 +1036,13 @@ const peakMainProcedure = {
                 const lastTrial = jsPsych.data.get().last(1).values()[0];
                 if (lastTrial.response === null) {
                     return '<div class="feedback error">Too slow!</div>';
-                } else if (!lastTrial.correct) {
-                    return '<div class="feedback error">Incorrect!</div>';
                 }
                 return '';
             },
             choices: "NO_KEYS",
             trial_duration: function() {
                 const lastTrial = jsPsych.data.get().last(1).values()[0];
-                return (lastTrial.response === null || !lastTrial.correct) ? 500 : 0;
+                return (lastTrial.response === null) ? 500 : 0;
             }
         },
         {
