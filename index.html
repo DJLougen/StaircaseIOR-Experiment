@@ -126,7 +126,8 @@ const CROSS_START_ISI = 200;
 const CROSS_STEP_SIZE_INITIAL = 50;
 const CROSS_STEP_SIZE_MIN = 10;
 const CROSS_N_REVERSALS = 12;
-const CROSS_N_TRIALS_MAX = 100;
+const CROSS_N_TRIALS_MAX = 250;
+const CROSS_CATCH_RATE = 0.2;
 const CROSS_RT_WINDOW = 5;
 
 const CROSS_N_PRACTICE_TRIALS = 10;
@@ -151,7 +152,8 @@ let crossCurrentTrial = {
     validity: 'valid',
     correctResponse: 'f',
     isi: 200,
-    isPractice: false
+    isPractice: false,
+    isCatch: false
 };
 
 let crossMainTrialCount = 0;
@@ -237,11 +239,19 @@ function crossGetThreshold() {
 function crossSetupNewTrial(isPractice) {
     crossCurrentTrial.isPractice = isPractice;
     crossCurrentTrial.cueSide = Math.random() < 0.5 ? 'left' : 'right';
-    crossCurrentTrial.validity = Math.random() < 0.5 ? 'valid' : 'invalid';
-    crossCurrentTrial.targetSide = crossCurrentTrial.validity === 'valid' ?
-        crossCurrentTrial.cueSide :
-        (crossCurrentTrial.cueSide === 'left' ? 'right' : 'left');
-    crossCurrentTrial.correctResponse = crossCurrentTrial.targetSide === 'left' ? 'f' : 'j';
+    crossCurrentTrial.isCatch = Math.random() < CROSS_CATCH_RATE;
+
+    if (crossCurrentTrial.isCatch) {
+        crossCurrentTrial.validity = 'catch';
+        crossCurrentTrial.targetSide = null;
+        crossCurrentTrial.correctResponse = null;
+    } else {
+        crossCurrentTrial.validity = Math.random() < 0.5 ? 'valid' : 'invalid';
+        crossCurrentTrial.targetSide = crossCurrentTrial.validity === 'valid' ?
+            crossCurrentTrial.cueSide :
+            (crossCurrentTrial.cueSide === 'left' ? 'right' : 'left');
+        crossCurrentTrial.correctResponse = crossCurrentTrial.targetSide === 'left' ? 'f' : 'j';
+    }
 
     if (isPractice) {
         crossCurrentTrial.isi = CROSS_PRACTICE_ISIS[Math.floor(Math.random() * CROSS_PRACTICE_ISIS.length)];
@@ -264,7 +274,7 @@ function crossGenerateTrialHTML(phase) {
         html += `<div class="cue cue-${crossCurrentTrial.cueSide}"></div>`;
     }
 
-    if (phase === 'target') {
+    if (phase === 'target' && !crossCurrentTrial.isCatch) {
         html += `<div class="target target-${crossCurrentTrial.targetSide}"></div>`;
     }
 
@@ -282,6 +292,7 @@ const PEAK_STEP_SIZE_INITIAL = 75;
 const PEAK_STEP_SIZE_MIN = 15;
 const PEAK_N_REVERSALS = 12;
 const PEAK_N_TRIALS_MAX = 250;
+const PEAK_CATCH_RATE = 0.2;
 const PEAK_RT_WINDOW = 5;
 
 
@@ -306,7 +317,8 @@ let peakCurrentTrial = {
     validity: 'valid',
     correctResponse: 'f',
     isi: 300,
-    isPractice: false
+    isPractice: false,
+    isCatch: false
 };
 
 let peakMainTrialCount = 0;
@@ -484,8 +496,14 @@ function peakGetMaxIOR() {
 function peakSetupNewTrial(isPractice, isSampling = false) {
     peakCurrentTrial.isPractice = isPractice;
     peakCurrentTrial.cueSide = Math.random() < 0.5 ? 'left' : 'right';
+    peakCurrentTrial.isCatch = !isSampling && Math.random() < PEAK_CATCH_RATE;
 
-    if (isSampling) {
+    if (peakCurrentTrial.isCatch) {
+        peakCurrentTrial.validity = 'catch';
+        peakCurrentTrial.targetSide = null;
+        peakCurrentTrial.correctResponse = null;
+        peakCurrentTrial.isi = isSampling ? peakSamplingData.schedule[peakSamplingTrialCount].isi : peakStaircase.currentISI;
+    } else if (isSampling) {
         const scheduledTrial = peakSamplingData.schedule[peakSamplingTrialCount];
         peakCurrentTrial.validity = scheduledTrial.validity;
         peakCurrentTrial.isi = scheduledTrial.isi;
@@ -494,10 +512,12 @@ function peakSetupNewTrial(isPractice, isSampling = false) {
         peakCurrentTrial.isi = peakStaircase.currentISI;
     }
 
-    peakCurrentTrial.targetSide = peakCurrentTrial.validity === 'valid' ?
-        peakCurrentTrial.cueSide :
-        (peakCurrentTrial.cueSide === 'left' ? 'right' : 'left');
-    peakCurrentTrial.correctResponse = peakCurrentTrial.targetSide === 'left' ? 'f' : 'j';
+    if (!peakCurrentTrial.isCatch) {
+        peakCurrentTrial.targetSide = peakCurrentTrial.validity === 'valid' ?
+            peakCurrentTrial.cueSide :
+            (peakCurrentTrial.cueSide === 'left' ? 'right' : 'left');
+        peakCurrentTrial.correctResponse = peakCurrentTrial.targetSide === 'left' ? 'f' : 'j';
+    }
 }
 
 function peakGenerateTrialHTML(phase) {
@@ -514,7 +534,7 @@ function peakGenerateTrialHTML(phase) {
         html += `<div class="cue cue-${peakCurrentTrial.cueSide}"></div>`;
     }
 
-    if (phase === 'target') {
+    if (phase === 'target' && !peakCurrentTrial.isCatch) {
         html += `<div class="target target-${peakCurrentTrial.targetSide}"></div>`;
     }
 
@@ -582,6 +602,7 @@ timeline.push({
             </ul>
             <p><strong>Your task:</strong></p>
             <p>Press <strong>SPACEBAR</strong> as quickly as possible when the target appears.</p>
+            <p>On some trials, no target will appear — <strong>do not press anything</strong> on those trials.</p>
             <p>Respond as <strong>QUICKLY</strong> and <strong>ACCURATELY</strong> as possible.</p>
             <p class="continue-text">Press SPACE to continue</p>
         </div>
@@ -652,14 +673,22 @@ const crossPracticeProcedure = {
                 data.validity = crossCurrentTrial.validity;
                 data.correctResponse = crossCurrentTrial.correctResponse;
                 data.isi = crossCurrentTrial.isi;
-                data.correct = data.response !== null;
+                data.isCatch = crossCurrentTrial.isCatch;
+                if (crossCurrentTrial.isCatch) {
+                    data.correct = data.response === null;
+                } else {
+                    data.correct = data.response !== null;
+                }
             }
         },
         {
             type: jsPsychHtmlKeyboardResponse,
             stimulus: function() {
                 const lastTrial = jsPsych.data.get().last(1).values()[0];
-                if (lastTrial.response === null) {
+                if (lastTrial.isCatch && lastTrial.response !== null) {
+                    return '<div class="feedback error">Do not respond when no target appears!</div>';
+                }
+                if (!lastTrial.isCatch && lastTrial.response === null) {
                     return '<div class="feedback error">Too slow! Respond faster.</div>';
                 }
                 return '';
@@ -667,7 +696,9 @@ const crossPracticeProcedure = {
             choices: "NO_KEYS",
             trial_duration: function() {
                 const lastTrial = jsPsych.data.get().last(1).values()[0];
-                return (lastTrial.response === null) ? 1500 : 0;
+                if (lastTrial.isCatch && lastTrial.response !== null) return 1500;
+                if (!lastTrial.isCatch && lastTrial.response === null) return 1500;
+                return 0;
             }
         },
         {
@@ -743,25 +774,31 @@ const crossMainProcedure = {
                 data.validity = crossCurrentTrial.validity;
                 data.correctResponse = crossCurrentTrial.correctResponse;
                 data.isi = crossCurrentTrial.isi;
-                data.correct = data.response !== null;
+                data.isCatch = crossCurrentTrial.isCatch;
                 data.nReversals = crossStaircase.reversals.length;
                 data.stepSize = crossStaircase.stepSize;
                 data.currentISI = crossStaircase.currentISI;
                 data.reversal = false;
 
-                if (data.correct && data.rt !== null && data.rt > 100) {
-                    if (crossCurrentTrial.validity === 'valid') {
-                        crossStaircase.validRTs.push(data.rt);
-                    } else {
-                        crossStaircase.invalidRTs.push(data.rt);
-                    }
+                if (crossCurrentTrial.isCatch) {
+                    data.correct = data.response === null;
+                } else {
+                    data.correct = data.response !== null;
 
-                    if (crossShouldUpdateStaircase()) {
-                        const { reversal } = crossUpdateStaircase();
-                        data.reversal = reversal;
-                        data.nReversals = crossStaircase.reversals.length;
-                        if (reversal) {
-                            console.log(`[Crossover] Reversal ${crossStaircase.reversals.length}: ISI = ${crossStaircase.currentISI}ms`);
+                    if (data.correct && data.rt !== null && data.rt > 100) {
+                        if (crossCurrentTrial.validity === 'valid') {
+                            crossStaircase.validRTs.push(data.rt);
+                        } else {
+                            crossStaircase.invalidRTs.push(data.rt);
+                        }
+
+                        if (crossShouldUpdateStaircase()) {
+                            const { reversal } = crossUpdateStaircase();
+                            data.reversal = reversal;
+                            data.nReversals = crossStaircase.reversals.length;
+                            if (reversal) {
+                                console.log(`[Crossover] Reversal ${crossStaircase.reversals.length}: ISI = ${crossStaircase.currentISI}ms`);
+                            }
                         }
                     }
                 }
@@ -771,7 +808,10 @@ const crossMainProcedure = {
             type: jsPsychHtmlKeyboardResponse,
             stimulus: function() {
                 const lastTrial = jsPsych.data.get().last(1).values()[0];
-                if (lastTrial.response === null) {
+                if (lastTrial.isCatch && lastTrial.response !== null) {
+                    return '<div class="feedback error">Do not respond when no target appears!</div>';
+                }
+                if (!lastTrial.isCatch && lastTrial.response === null) {
                     return '<div class="feedback error">Too slow!</div>';
                 }
                 return '';
@@ -779,7 +819,9 @@ const crossMainProcedure = {
             choices: "NO_KEYS",
             trial_duration: function() {
                 const lastTrial = jsPsych.data.get().last(1).values()[0];
-                return (lastTrial.response === null) ? 500 : 0;
+                if (lastTrial.isCatch && lastTrial.response !== null) return 500;
+                if (!lastTrial.isCatch && lastTrial.response === null) return 500;
+                return 0;
             }
         },
         {
@@ -1012,27 +1054,33 @@ const peakMainProcedure = {
                 data.validity = peakCurrentTrial.validity;
                 data.correctResponse = peakCurrentTrial.correctResponse;
                 data.isi = peakCurrentTrial.isi;
-                data.correct = data.response !== null;
+                data.isCatch = peakCurrentTrial.isCatch;
                 data.nReversals = peakStaircase.reversals.length;
                 data.stepSize = peakStaircase.stepSize;
                 data.currentISI = peakStaircase.currentISI;
                 data.currentIOR = peakStaircase.lastIOR || 0;
                 data.reversal = false;
 
-                if (data.correct && data.rt !== null && data.rt > 100) {
-                    if (peakCurrentTrial.validity === 'valid') {
-                        peakStaircase.validRTs.push({ isi: peakCurrentTrial.isi, rt: data.rt });
-                    } else {
-                        peakStaircase.invalidRTs.push({ isi: peakCurrentTrial.isi, rt: data.rt });
-                    }
+                if (peakCurrentTrial.isCatch) {
+                    data.correct = data.response === null;
+                } else {
+                    data.correct = data.response !== null;
 
-                    if (peakShouldUpdateStaircase()) {
-                        const { reversal } = peakUpdateStaircase();
-                        data.reversal = reversal;
-                        data.currentIOR = peakStaircase.lastIOR || 0;
-                        data.nReversals = peakStaircase.reversals.length;
-                        if (reversal) {
-                            console.log(`[Peak] Reversal ${peakStaircase.reversals.length}: ISI = ${peakStaircase.currentISI}ms, IOR = ${peakStaircase.lastIOR?.toFixed(1)}ms`);
+                    if (data.correct && data.rt !== null && data.rt > 100) {
+                        if (peakCurrentTrial.validity === 'valid') {
+                            peakStaircase.validRTs.push({ isi: peakCurrentTrial.isi, rt: data.rt });
+                        } else {
+                            peakStaircase.invalidRTs.push({ isi: peakCurrentTrial.isi, rt: data.rt });
+                        }
+
+                        if (peakShouldUpdateStaircase()) {
+                            const { reversal } = peakUpdateStaircase();
+                            data.reversal = reversal;
+                            data.currentIOR = peakStaircase.lastIOR || 0;
+                            data.nReversals = peakStaircase.reversals.length;
+                            if (reversal) {
+                                console.log(`[Peak] Reversal ${peakStaircase.reversals.length}: ISI = ${peakStaircase.currentISI}ms, IOR = ${peakStaircase.lastIOR?.toFixed(1)}ms`);
+                            }
                         }
                     }
                 }
@@ -1042,7 +1090,10 @@ const peakMainProcedure = {
             type: jsPsychHtmlKeyboardResponse,
             stimulus: function() {
                 const lastTrial = jsPsych.data.get().last(1).values()[0];
-                if (lastTrial.response === null) {
+                if (lastTrial.isCatch && lastTrial.response !== null) {
+                    return '<div class="feedback error">Do not respond when no target appears!</div>';
+                }
+                if (!lastTrial.isCatch && lastTrial.response === null) {
                     return '<div class="feedback error">Too slow!</div>';
                 }
                 return '';
@@ -1050,7 +1101,9 @@ const peakMainProcedure = {
             choices: "NO_KEYS",
             trial_duration: function() {
                 const lastTrial = jsPsych.data.get().last(1).values()[0];
-                return (lastTrial.response === null) ? 500 : 0;
+                if (lastTrial.isCatch && lastTrial.response !== null) return 500;
+                if (!lastTrial.isCatch && lastTrial.response === null) return 500;
+                return 0;
             }
         },
         {
@@ -1176,7 +1229,7 @@ timeline.push({
 
         // === TRIAL DATA (both experiments) ===
         csvContent += '=== TRIAL DATA ===\n';
-        csvContent += 'experiment,phase,trial_num,isi,validity,rt,correct,response,cue_side,target_side,reversal,n_reversals,step_size,current_ior\n';
+        csvContent += 'experiment,phase,trial_num,isi,validity,is_catch,rt,correct,response,cue_side,target_side,reversal,n_reversals,step_size,current_ior\n';
 
         const iorTrials = allTrials.filter(trial => trial.task === 'ior-trial');
 
@@ -1195,6 +1248,7 @@ timeline.push({
                 trialNum,
                 trial.isi !== undefined ? trial.isi : '',
                 trial.validity !== undefined ? trial.validity : '',
+                trial.isCatch !== undefined ? trial.isCatch : false,
                 trial.rt !== null && trial.rt !== undefined ? trial.rt : '',
                 trial.correct !== undefined ? trial.correct : '',
                 trial.response !== null && trial.response !== undefined ? trial.response : '',
